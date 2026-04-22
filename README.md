@@ -1,0 +1,4 @@
+# Latent time-shift clustering of Alzheimer's disease patients
+Latent time-shift clustering algorithm. Orginally used in the publication "Data-driven clustering of atrophy patterns in Alzheimer's disease"
+
+![Overview of algorithm](ltc_algo.png)
