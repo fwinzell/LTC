@@ -1,7 +1,19 @@
 library(data.table)
 library(lubridate)
+library(ggplot2)
+library(tidyr)
 
-#nacc_ft <- fread("~/R/EDAP-data/NACC/investigator_ftldlbd_nacc72.csv")
+plot_histograms <- function(df, cols) {
+  # Usage:
+  #plot_histograms(data.frame(nacc_mri_scan), c("RIGHT_HIPPOCAMPUS", "RIGHT_HIPPO"))
+  df_long <- pivot_longer(df[cols], cols = everything(), 
+                          names_to = "variable", values_to = "value")
+  
+  ggplot(df_long, aes(x = value, fill = variable)) +
+    geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
+    theme_minimal()
+}
+
 
 load_nacc_mri <- function(ab_positives=TRUE) {
   nacc_ft <- fread("~/R/EDAP-data/NACC/investigator_ftldlbd_nacc72.csv")
@@ -16,13 +28,13 @@ load_nacc_mri <- function(ab_positives=TRUE) {
     mutate(Months = interval(DATE.bl, DATE) %/% months(1),
            Years = Months/12)
   
-  
-  mri_cols <- c("LEFT_HIPPO", "RIGHT_HIPPO", colnames(nacc_mri_scan)[grep("^[LR]H_[^_]*_GVOL", colnames(nacc_mri_scan))])
-  nacc_mri_scan <- select(nacc_mri_scan, NACCID, DATE, DATE.bl, Months, Years, CEREBRUMTCV, all_of(mri_cols)) %>%
-    mutate(LEFT_HIPPO = LEFT_HIPPO*1000,
-           RIGHT_HIPPO = RIGHT_HIPPO*1000,
-           CEREBRUMTCV = CEREBRUMTCV*1000) %>%
-    mutate_at(mri_cols, ~ . /CEREBRUMTCV)
+  mri_cols <- setdiff(c(colnames(nacc_mri_scan)[grep("^(LEFT|RIGHT|CC)_", colnames(nacc_mri_scan))], 
+                colnames(nacc_mri_scan)[grep("^[LR]H_[^_]*_GVOL", colnames(nacc_mri_scan))],
+                "BRAIN_STEM"), c("LEFT_HIPPO", "RIGHT_HIPPO"))
+  nacc_mri_scan <- select(nacc_mri_scan, NACCID, DATE, DATE.bl, Months, Years, ESTIMATEDTOTALINTRACRANIALVOL, all_of(mri_cols)) %>%
+    #mutate(LEFT_HIPPO = LEFT_HIPPO*1000,
+    #       RIGHT_HIPPO = RIGHT_HIPPO*1000) %>%
+    mutate_at(mri_cols, ~ . /ESTIMATEDTOTALINTRACRANIALVOL)
   
   nacc_bl <- nacc_ft %>% filter(NACCFDYS == 0) %>% select(NACCID, NACCUDSD) %>%
     mutate(NACCDXBL = factor(NACCUDSD, labels = c("CN", "Impaired", "MCI", "Dementia"))) %>% select(-NACCUDSD)
@@ -52,6 +64,39 @@ load_nacc_mri_mp <- function() {
            Years = Months/12)
 }
 
+plot_nacc_pet <- function() {
+  nacc_pet_scan <- fread("~/R/EDAP-data/NACC/investigator_scan_pet_nacc72/investigator_scan_amyloidpetgaain_nacc72.csv") %>%
+    select(NACCID, NACCADC, LONIUID, SCANDATE, TRACER, AMYLOID_STATUS, GAAIN_SUMMARY_SUVR, GAAIN_WHOLECEREBELLUM_SUVR, 
+           GAAIN_COMPOSITE_REF_SUVR, GAAIN_CEREBELLUM_CORTEX)
+  nacc_pet_scan_mp <- fread("~/R/EDAP-data/NACC/investigator_scan_pet_nacc72/investigator_scan_mp_amyloidpetgaain_nacc72.csv") %>%
+    select(NACCID, NACCADC, LONIUID, SCANDATE, TRACER, AMYLOID_STATUS, GAAIN_SUMMARY_SUVR, GAAIN_WHOLECEREBELLUM_SUVR, 
+           GAAIN_COMPOSITE_REF_SUVR, GAAIN_CEREBELLUM_CORTEX)
+  
+  nacc_pet <- rbind(nacc_pet_scan, nacc_pet_scan_mp) %>% arrange(NACCID, SCANDATE) %>%
+    mutate(DATE = parse_date_time(SCANDATE, "ymd")) %>% select(-SCANDATE) %>% 
+    drop_na(GAAIN_SUMMARY_SUVR) %>% mutate(TRACER = factor(TRACER, 
+                                                           labels = c("PiB", "FBP", "FBB", "NAV")))
+  
+  ggplot(nacc_pet, aes(x = TRACER, y = GAAIN_SUMMARY_SUVR, group = TRACER, color=TRACER)) +
+    geom_violin(trim = FALSE, alpha = 0.4) +
+    geom_boxplot(width = 0.15, outlier.shape = NA) +
+    geom_jitter(width = 0.12, alpha = 0.35, size = 1) +
+    labs(
+      x = "Amyloid PET tracer",
+      y = "GAAIN / Centiloid value",
+      title = "Distribution of amyloid PET values by tracer"
+    ) +
+    theme_minimal()
+  
+  ggplot(nacc_pet, aes(x = GAAIN_SUMMARY_SUVR, fill = TRACER)) +
+    geom_density(alpha = 0.35) +
+    labs(
+      x = "GAAIN / Centiloid value",
+      y = "Density",
+      title = "Distribution of amyloid PET values by tracer"
+    ) +
+    theme_minimal()
+}
 
 get_dpm_data <- function () {
   nacc_ft <- fread("~/R/EDAP-data/NACC/investigator_ftldlbd_nacc72.csv")
@@ -106,11 +151,10 @@ get_dpm_data <- function () {
   # 3. FBP - 1188
   # 4. FBB - 1538
   # 5. NAV - 170
-  # Use PiB because of higher numbers
+  # Use GAAIN values to include all?
   
   nacc_pet <- rbind(nacc_pet_scan, nacc_pet_scan_mp) %>% arrange(NACCID, SCANDATE) %>%
-    filter(TRACER == 2) %>% select(NACCID, SCANDATE, GAAIN_SUMMARY_SUVR) %>%
-    rename(PiB_SUVR = GAAIN_SUMMARY_SUVR) %>%
+    select(NACCID, SCANDATE, GAAIN_SUMMARY_SUVR) %>% rename(GAAIN_SUVR = GAAIN_SUMMARY_SUVR) %>%
     mutate(DATE = parse_date_time(SCANDATE, "ymd")) %>% select(-SCANDATE)
   
   nacc_dpm <- select(nacc_cog, NACCID, DATE, CDRSUM, NACCMMSE, NACCMOCA) %>%

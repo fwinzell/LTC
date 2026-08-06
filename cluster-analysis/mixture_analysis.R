@@ -149,25 +149,45 @@ clusters = levels(mri_data$Cluster)
 
 data <- filter(all_collect, Stage ==stages[1]) 
 
-
-
-data <- filter(collect.wide, Stage == stages[1], Cluster == clusters[1]) %>% 
-  select(all_of(mri_cols)) %>% na.omit() %>%
-  prcomp(rank. = 10)
-Sigma_1 <- cov(data$x)
-Mu_1 <- colMeans(data$x, na.rm=TRUE)
-
-data <- filter(collect.wide, Stage == stages[6], Cluster == clusters[4]) %>% 
-  select(all_of(mri_cols)) %>% na.omit() %>%
-  prcomp(rank. = 10)
-Sigma_2 <- cov(data$x)
-Mu_2 <- colMeans(data$x, na.rm=TRUE)
-
 library(fpc)
 
-D_b <- fpc::bhattacharyya.dist(mu1 = Mu_1, mu2 = Mu_2, Sigma1 = Sigma_1, Sigma2 = Sigma_2)
-exp(-D_b)
+bhatta_fun <- function(stage_1, cluster_a, stage_2, cluster_b) {
+  data <- filter(collect.wide, Stage %in% c(stage_1, stage_2), Cluster %in% c(cluster_a, cluster_b)) %>% na.omit() 
+  
+  pca <- data %>% select(all_of(mri_cols)) %>% prcomp(rank. = 10)
+  
+  if (cluster_a != cluster_b) {
+    res <- data.frame(
+      Cluster = data$Cluster,
+      pca$x
+    )
+    
+    Sigma_1 <- res %>% filter(Cluster == cluster_a) %>% select(-Cluster) %>% cov()
+    Mu_1 <- res %>% filter(Cluster == cluster_a) %>% select(-Cluster) %>% colMeans(na.rm=TRUE)
+    
+    Sigma_2 <- res %>% filter(Cluster == cluster_b) %>% select(-Cluster) %>% cov()
+    Mu_2 <- res %>% filter(Cluster == cluster_b) %>% select(-Cluster) %>% colMeans(na.rm=TRUE)  
+  } else {
+    res <- data.frame(
+      Stage = data$Stage,
+      pca$x
+    )
+    
+    Sigma_1 <- res %>% filter(Stage == stage_1) %>% select(-Stage) %>% cov()
+    Mu_1 <- res %>% filter(Stage == stage_1) %>% select(-Stage) %>% colMeans(na.rm=TRUE)
+    
+    Sigma_2 <- res %>% filter(Stage == stage_2) %>% select(-Stage) %>% cov()
+    Mu_2 <- res %>% filter(Stage == stage_2) %>% select(-Stage) %>% colMeans(na.rm=TRUE)
+  }
+  
+  
+  D_b <- fpc::bhattacharyya.dist(mu1 = Mu_1, mu2 = Mu_2, Sigma1 = Sigma_1, Sigma2 = Sigma_2)
+  return(exp(-D_b))
+}
 
+
+bdists <- lapply(stages,  bhatta_fun, cluster_a="A", cluster_b="B", stage_2=stages[6])
+bdists
 
 
 

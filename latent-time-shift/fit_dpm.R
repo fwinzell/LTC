@@ -1,4 +1,6 @@
-fit_dpm2 <- function(scale_y=FALSE, scale_t=FALSE) {
+fit_dpm2 <- function(scale_y=FALSE, scale_t=FALSE, include_hippo=FALSE) {
+  source("~/R/LTC/utils/adni_data_loaders.r")
+  
   get_ab_df <- source("~/R/LTC/get_ab_df.r")$value
   ab_df <- get_ab_df()
   
@@ -10,7 +12,7 @@ fit_dpm2 <- function(scale_y=FALSE, scale_t=FALSE) {
   dx.df <- ADNIMERGE2::DXSUM %>% select(RID, VISCODE2, DIAGNOSIS, DXCONFID) %>% drop_na(DIAGNOSIS) %>%
     mutate(DX.bl = ifelse(VISCODE2 == "bl", DIAGNOSIS, NA)) %>%
     group_by(RID) %>% mutate(
-      DX.bl = first(na.omit(DX.bl))
+      DX.bl = if (all(is.na(DX.bl))) NA else first(na.omit(DX.bl))
     ) %>% ungroup() %>% arrange(RID, VISCODE2)
   
   missing.bl <- filter(dx.df, is.na(DX.bl) & VISCODE2 == "sc") %>% mutate(DX.bl = DIAGNOSIS) %>%
@@ -47,10 +49,6 @@ fit_dpm2 <- function(scale_y=FALSE, scale_t=FALSE) {
     left_join(dx.bl, by = "RID") %>%
     distinct(RID, VISCODE2, .keep_all = TRUE) %>% filter(! VISCODE2 %in% c("f", "uns1"))
   
-  adni_dpm <- anti_join(adni_dpm, remove_rids, by=c("RID", "VISCODE2"))
-  
-  adni_dpm %>% distinct(RID, DX.bl) %>% select(DX.bl) %>% table(useNA = "ifany")
-  
   # Time by EXAMDATES
   adni_dpm <- ADNIMERGE2::REGISTRY %>% group_by(RID) %>% arrange(EXAMDATE) %>% 
     summarise(EXAMDATE.bl = EXAMDATE[1]) %>% right_join(adni_dpm, by="RID") %>% drop_na(EXAMDATE.bl)
@@ -59,6 +57,26 @@ fit_dpm2 <- function(scale_y=FALSE, scale_t=FALSE) {
     mutate(VisM = as.numeric(ifelse(VISCODE2 %in% c("bl", "sc"), "0", gsub("m", "", VISCODE2)))) %>% 
     mutate(Months = ifelse(is.na(Months), VisM, Months)) %>% select(-VisM) %>% 
     mutate(Years = Months/12) 
+  
+  if (include_hippo) {
+    hippo.df <- ucsf_longitudinal_all(only_vol=TRUE) %>%
+      select(RID, Years, ST29SV, ST88SV, DX.bl) %>%
+      mutate(Hippocampus = ST29SV+ST88SV) %>% select(RID, Years, Hippocampus) %>%
+      distinct(RID, Years, .keep_all=TRUE)
+    
+    #hippo.df$Hippocampus <- round(hippo.df$Hippocampus*1000, 1)
+    #ggplot(data = hippo.df, aes(x=Years, y=Hippocampus, group = RID, color = DX.bl)) +
+    #  geom_line() +
+    #  labs(x="") +
+    #  scale_color_brewer(palette = "YlOrRd", name = "Baseline diagnosis") +
+    #  theme_classic()
+    
+    adni_dpm <- left_join(adni_dpm, hippo.df, by= c("RID", "Years"))
+  }
+  
+  adni_dpm <- anti_join(adni_dpm, remove_rids, by=c("RID", "VISCODE2"))
+  
+  adni_dpm %>% distinct(RID, DX.bl) %>% select(DX.bl) %>% table(useNA = "ifany")
   
   # Impute missing baseline diagnosis by CDGLOBAL
   adni_dpm <- adni_dpm %>% 
@@ -141,8 +159,12 @@ fit_dpm2 <- function(scale_y=FALSE, scale_t=FALSE) {
   cols <- c("RID", "Months", "DX.bl", "CN", "MCI", "AD", "negAB.bl")
   adni_dpm_long <- rbind(adni_dpm[c("ADAS13", cols)] |> mutate(scale = "ADAS13") |> rename(value = ADAS13), 
                          adni_dpm[c("MMSE", cols)] |> mutate(scale = "MMSE") |> rename(value = MMSE),
-                         adni_dpm[c("FBP_SUVR", cols)] |> mutate(scale = "FBP_SUVR") |> rename(value = FBP_SUVR)) %>%
-    drop_na(value)
+                         adni_dpm[c("FBP_SUVR", cols)] |> mutate(scale = "FBP_SUVR") |> rename(value = FBP_SUVR))
+  if (include_hippo) {
+    adni_dpm_long <- rbind(adni_dpm_long, 
+                           adni_dpm[c("Hippocampus", cols)] |> mutate(scale = "Hippocampus") |> rename(value = Hippocampus))
+  }
+  adni_dpm_long <- drop_na(adni_dpm_long, value)
   
   adni_dpm_long <- adni_dpm_long %>% mutate(
     scale = as.factor(scale),
@@ -156,8 +178,11 @@ fit_dpm2 <- function(scale_y=FALSE, scale_t=FALSE) {
     adni_dpm_long$t <- scale(adni_dpm_long$t)
   } 
 
-  
-  v.df <- adni_dpm %>% filter(CN == 1 & Months == 0.0) %>% ungroup() %>% select(ADAS13, MMSE, FBP_SUVR) %>% colMeans(na.rm=T)
+  cols <- c("ADAS13", "MMSE", "FBP_SUVR")
+  if (include_hippo) { 
+    cols <- c(cols, "Hippocampus")
+    }
+  v.df <- adni_dpm %>% filter(CN == 1 & Months == 0.0) %>% ungroup() %>% select(all_of(cols)) %>% colMeans(na.rm=T)
   
   if (scale_t) {
     mu <- attr(adni_dpm_long$t, 'scaled:center')
@@ -180,9 +205,16 @@ fit_dpm2 <- function(scale_y=FALSE, scale_t=FALSE) {
                           g.scaleADAS13 = 1.5,
                           g.scaleMMSE = 1,
                           g.scaleFBP_SUVR = 2,
-                          v.scaleADAS13 = v.df["ADAS13"],
-                          v.scaleMMSE = v.df["MMSE"],
-                          v.scaleFBP_SUVR = v.df["FBP_SUVR"])
+                          v.scale=v.df) 
+                          #v.scaleADAS13 = v.df["ADAS13"],
+                          #v.scaleMMSE = v.df["MMSE"],
+                          #v.scaleFBP_SUVR = v.df["FBP_SUVR"])
+  
+  if (include_hippo) {
+    fixed_start_coef_y <- c(fixed_start_coef_y,
+                            l.scaleHippocampus = -0.01,
+                            g.scaleHippocampus = 1)
+  }
   
   ctrl <- nlmeControl(maxIter = 200, # 50, Can be increased
                       pnlsMaxIter = 20, 

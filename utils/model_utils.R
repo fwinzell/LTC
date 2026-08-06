@@ -238,7 +238,7 @@ exp_nlmms_sample_fn <- function(varname, dsubset, n_samples=100, verbose=FALSE) 
     decline <- rand %>% select(RID, gi) # or gi!!
     colnames(decline) <- c("RID", varname)
     
-    decline$RID <- as.numeric(decline$RID)
+    decline$RID <- as.factor(decline$RID)
     
     results <- list(
       betas = decline,
@@ -410,7 +410,7 @@ fit_one_cluster_nlmm_sample_fn <- function(varname, dsubset, n_samples=25, verbo
     decline <- rand %>% select(RID, gi)
     colnames(decline) <- c("RID", varname)
     
-    decline$RID <- as.numeric(decline$RID)
+    decline$RID <- as.factor(decline$RID)
     
     results <- list(
       betas = decline,

@@ -12,8 +12,10 @@ load_oasis_mri_data <- function(unified_norm=TRUE) {
     mutate(Months = round(days_to_visit/30.5), Years = Months/12)
   
   mri_cols <- c(grepv("^[lr]h_[a-z]+_volume$", colnames(oasis_fs_data)), 
-                grepv("^(Left|Right)\\.[a-zA-Z._]+_volume$", colnames(oasis_fs_data)))
-  mri_cols <- setdiff(mri_cols, grepv("vessel|Vent|WM|choroid", mri_cols))
+                grepv("^(Left|Right)\\.[a-zA-Z._]+_volume$", colnames(oasis_fs_data)),
+                grepv("^CC_[a-zA-Z._]+_volume$", colnames(oasis_fs_data)),
+                "Brain.Stem_volume")
+  mri_cols <- setdiff(mri_cols, grepv("vessel|WM|choroid", mri_cols))
   
   oasis_dx <- read.csv(paste0(OASIS_DIR, "UDSd1-Form_D1__Clinician_Diagnosis___Cognitive_Status_and_Dementia/resources/csv/files/OASIS3_UDSd1_diagnoses.csv")) %>%
     select(OASISID, days_to_visit, age.at.visit, NORMCOG, DEMENTED, MCIAMEM, MCIAPLUS, MCINON1, MCINON2, IMPNOMCI, alzdis) %>%
