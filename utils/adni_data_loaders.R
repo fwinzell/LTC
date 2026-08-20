@@ -296,6 +296,15 @@ get_ab_df <- function() {
   
 }
 
+get_ab_pos_ids <- function() {
+  ab_df <- get_ab_df()
+  # Any positive Abeta biomarker at any time point
+  ab_df %>% select(RID, AB_any) %>% group_by(RID) %>% 
+    mutate(AB_any = if_any(AB_any)) %>% distinct() %>% filter(AB_any) %>% 
+    select(RID) %>% unlist() %>% unname() -> ab_pos_rids_any
+  return(ab_pos_rids_any)
+}
+
 get_tau_pet <- function() {
   # TAU PET
   ## Partial Volume Correction (PVC)
@@ -327,6 +336,14 @@ get_diagnoses <- function() {
   dx.df <- ADNIMERGE2::MMSE %>% distinct(RID, VISCODE2, .keep_all=TRUE) %>% select(RID, VISCODE2, MMSCORE) %>%
     right_join(dx.df, by =c("RID", "VISCODE2")) %>% rowwise() %>%
     mutate(CI = any(DIAGNOSIS %in% c("MCI", "Dementia"), CDGLOBAL > 0.0, MMSCORE < 26, na.rm=TRUE)) %>% arrange(RID, VISCODE2)
+  
+  dx.df <- dx.df %>% drop_na(DIAGNOSIS) %>%
+    mutate(DX.bl = ifelse(VISCODE2 == "bl", DIAGNOSIS, NA)) %>%
+    group_by(RID) %>% mutate(
+      DX.bl = first(DX.bl, na.rm=TRUE, default = NA)
+    ) %>% ungroup() %>%
+    mutate(DIAGNOSIS = factor(DIAGNOSIS, levels = c("CN", "MCI", "Dementia"), ordered = TRUE),
+           DX.bl = factor(DX.bl, levels = c("CN", "MCI", "Dementia"), ordered = TRUE)) %>%
   
   return(dx.df)
 }

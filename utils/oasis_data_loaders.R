@@ -19,7 +19,7 @@ load_oasis_mri_data <- function(unified_norm=TRUE) {
   
   oasis_dx <- read.csv(paste0(OASIS_DIR, "UDSd1-Form_D1__Clinician_Diagnosis___Cognitive_Status_and_Dementia/resources/csv/files/OASIS3_UDSd1_diagnoses.csv")) %>%
     select(OASISID, days_to_visit, age.at.visit, NORMCOG, DEMENTED, MCIAMEM, MCIAPLUS, MCINON1, MCINON2, IMPNOMCI, alzdis) %>%
-    filter_out(DEMENTED == 1 & alzdis == 0) 
+    dplyr::filter_out(DEMENTED == 1 & alzdis == 0) 
   
   oasis_bl <- filter(oasis_dx, days_to_visit == 0) %>% filter(if_any(NORMCOG:IMPNOMCI, ~ !is.na(.))) %>%
     mutate(across(NORMCOG:IMPNOMCI, ~ ifelse(is.na(.), 0, .)),

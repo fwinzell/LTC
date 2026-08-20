@@ -38,6 +38,8 @@ survival_analysis <- function(df, title_name, mu, sigma, z_threshold = -1.6449) 
   df$surv_time <- df$Time - min(df$Time)
   
   table(df[c("Cluster", "Event")])
+  df %>% filter(Cluster == "F") %>% group_by(RID) %>% mutate(last_follow_up = max(Time)) %>%
+    ungroup() %>% distinct(RID, last_follow_up) %>% select(last_follow_up) %>% hist()
   
   surv_data <- data.frame()
   for (rid in unique(df$RID)) {
@@ -69,7 +71,19 @@ survival_analysis <- function(df, title_name, mu, sigma, z_threshold = -1.6449) 
   Clusters <- df %>% select(RID, Cluster) %>% distinct() 
   surv_data <- left_join(surv_data, Clusters, by="RID")
   
-  table(surv_data[c("event", "Cluster")])
+  counts <- table(surv_data[c("event", "Cluster")])
+  if (any(counts == 0)) {
+    idx = which(counts == 0, arr.ind=T)
+    zeros <- data.frame(
+      event = rownames(counts)[idx[, 'event']],
+      Cluster = colnames(counts)[idx[, 'Cluster']]
+    )
+  for (i in seq_len(nrow(zeros))) {
+    cat('Zeros encoutered in cluster ', zeros$Cluster[i], ' for event indicator: ', zeros$event[i])
+  }
+    print('Test with lower z-score threshold?')
+    return(list('plot' = NA, "summary" = NA))
+  }
   
   # 1. fit semi-parametric model
   fit <- ic_sp(Surv(time1, time2, type = "interval2") ~ Cluster,

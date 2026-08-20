@@ -36,6 +36,51 @@ evaluate_bics <- function(nlmmCandidates, all.vars) {
   return(best_idx)
 }
 
+evaluate_bics_2 <- function(nlmmCandidates, all.vars, min_conv_rate=0.90) {
+  all.bics <- sapply(nlmmCandidates, function(x) {
+    idx <- which(all.vars %in% names(x$betas))
+    bics <- rep(NA, length(all.vars))
+    bics[idx] <- x$bic
+    return(bics)
+  } ) 
+  
+  # Remove any clusterings that did not reach sufficient convergence rate
+  conv_rates <- lapply(2:ncol(all.bics), function(col) {
+    x <- all.bics[,col]
+    1-length(which(is.na(x)))/length(all.vars)
+  })
+  idxs <- c(1, which(conv_rates>min_conv_rate)+1)
+  all.bics <- all.bics[,idxs]
+  
+  if (ncol(all.bics) == 1) {
+    return(1)
+  }
+  
+  # Check if any is significantly better than parent 
+  p_values <- lapply(2:ncol(all.bics), function(col) {
+    df <- na.omit(cbind(all.bics[, 1], all.bics[, col]))
+    diff <- df[, 2] - df[, 1]
+    wilcox.test(diff, alternative = "less")$p.value
+  })
+  
+  better_idx <- which(p_values < 0.05)
+  
+  # If any is significantly better, select the best
+  if (length(better_idx) == 0) {
+    best_idx <- 1
+  } else if (length(better_idx) > 1) {
+    pairs <- combn(better_idx+1, 2, simplify = FALSE)
+    best_idx <- lapply(pairs, function(cols) {
+      idx = which.min(colMeans(na.omit(all.bics[, cols])))
+      cols[idx]
+    })
+    best_idx <- as.numeric(names(which.max(table(unlist(best_idx)))))
+  } else {
+    best_idx <- better_idx
+  }
+  
+  return(best_idx)
+}
 
 plot_dendrogram <- function(LTCobj, save=TRUE, file.name="dendro") {
   # Generate dendrogram
@@ -50,6 +95,7 @@ plot_dendrogram <- function(LTCobj, save=TRUE, file.name="dendro") {
   prev_level <- na.omit(LTCobj@tree[,2])
   nextIdx = 3
   activeClusters = names(prev_level)
+  xValues = setNames(c(-LTCobj@tree[1,2], LTCobj@tree[2,2]), activeClusters)
   inactiveClusters = list()
   negativeBranch = c("A")
   
@@ -59,22 +105,27 @@ plot_dendrogram <- function(LTCobj, save=TRUE, file.name="dendro") {
       if (new_level[c] != prev_level[c]) {
         # branch has branched
         new_pair = c(LTCobj@tree[c,level],LTCobj@tree[nextIdx,level])
+        new_label = names(LTCobj@tree[,level])[nextIdx]
+        prev_x = xValues[c]
         if (c %in% negativeBranch) {
-          prev_x = -prev_level[c]
-          negativeBranch <- c(negativeBranch, names(LTCobj@tree[,level])[nextIdx])
-        } else {
-          prev_x = prev_level[c] 
-        }
+          negativeBranch <- c(negativeBranch, new_label)
+        } 
+        
         segments <- rbind(segments,
                           data.frame(x=prev_x-new_pair[1], y=level, xend=prev_x+new_pair[2], yend=level),
                           data.frame(x=prev_x-new_pair[1], y=level, xend=prev_x-new_pair[1], yend=level+1),
                           data.frame(x=prev_x+new_pair[2], y=level, xend=prev_x+new_pair[2], yend=level+1))
+        nextIdx = nextIdx+1
+        activeClusters <- c(activeClusters, new_label)
+        xValues[[c]] = prev_x-new_pair[1]
+        xValues[[new_label]] = prev_x+new_pair[2]
       } else {
         # No branch, add to inactive clusters, remove from active
-        inactiveClusters[[c]] <- c(prev_level[c], level)
+        inactiveClusters[[c]] <- c(xValues[c], level)
         activeClusters <- setdiff(activeClusters, c)
       }
     }
+    prev_level = new_level
   }
   
   max_level = max(segments$yend)
@@ -110,8 +161,10 @@ plot_dendrogram <- function(LTCobj, save=TRUE, file.name="dendro") {
     scale_x_continuous(expand = expansion(mult = c(0.12, 0.12)))
   plot(p)
   
+  w = length(x_labels)*1.5
+  h = max_level
   if (save) {
-    ggsave(p, filename = paste0("~/R/EDAP-data/plots/LTC4/", file.name, ".png"), width = 6.5, height = 4, dpi = 300)
+    ggsave(p, filename = paste0("~/R/EDAP-data/plots/LTC/", file.name, ".png"), width = w, height = h, dpi = 300)
   }
   
   return(p)

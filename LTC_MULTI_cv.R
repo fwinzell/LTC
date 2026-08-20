@@ -79,16 +79,31 @@ if (fit_inital) {
   
   save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/nlmmBasic_AO.Rdata")
 } else {
-  load("~/R/EDAP-data/LTC_MC/nlmmBasic.Rdata")
+  load("~/R/EDAP-data/LTC_MC/nlmmBasic_AO.Rdata")
 }
 
 cat("Inital models fitted to", round((dim(nlmmBasic$betas)[2]-1)/length(all.vars)*100), "% of variables") 
 cat("Mean BIC: ", mean(nlmmBasic$bic))
 
-#### KM, no cross-validation ####
-for(ii in 1:1) {
-  set.seed(ii)
-  mc_clust <- multi_cohort_df #%>% select(RID, time_shift, M, DX.bl, Months, Years, all_of(vars))
+#### Cross-validation ####
+create_strat_folds <- function(df, k = 5) {
+  df %>% select(RID, DX.bl) %>% unique() -> subjects  
+  
+  folds <- caret::createFolds(subjects$DX.bl, k = 5)
+  
+  idx_folds <- lapply(folds, function(rids) {
+    which(df$RID %in% subjects[rids, "RID"])
+  })
+  
+  return(idx_folds)
+}
+
+k=5
+folds <- create_strat_folds(multi_cohort_df, k=k)
+
+
+for(ii in 1:k) {
+  mc_clust <- multi_cohort_df[-folds[[ii]], ]
   rids <- unique(mc_clust$RID)
   
   max_clusters <- 8
@@ -202,9 +217,7 @@ for(ii in 1:1) {
       best_idx = 1
     }
   
-    
     nlmmBest <- nlmmCandidates[[best_idx]]
-    save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/nlmmBest_AO.Rdata")
     
     # Remove this pair
     clusterPairs <- clusterPairs[-1]
@@ -275,7 +288,7 @@ for(ii in 1:1) {
                  ll = nlmmBest$logLikes,
                  tree = adjMat)
   
-  save(multiLTC, file = "~/R/EDAP-data/LTC_MC/exp_km_ab_ao.Rdata")
+  save(multiLTC, file = paste0("~/R/EDAP-data/LTC_MC/cross_validation/exp_km_ab_ao_", ii, ".Rdata"))
 }
 
 for(i in 1:length(clusterList)){

@@ -48,6 +48,13 @@ load_nacc_mri <- function(ab_positives=TRUE) {
   return(nacc_mri_scan)
 }
 
+get_ab_pos_ids <- function() {
+  nacc_ft <- fread("~/R/EDAP-data/NACC/investigator_ftldlbd_nacc72.csv")
+  amy_pos_id <- nacc_ft %>% filter(AMYLPET == 1 | AMYLCSF == 1) %>% select(NACCID) %>% unique() %>% unlist() %>% unname() 
+  amy_pos_id <-  as.numeric(gsub("^NACC", "", amy_pos_id))
+  return(amy_pos_id)
+}
+
 load_nacc_mri_mp <- function() {
   # Mixed protocols, do not use?
   nacc_ft <- fread("~/R/EDAP-data/NACC/investigator_ftldlbd_nacc72.csv")
