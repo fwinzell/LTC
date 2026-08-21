@@ -36,6 +36,18 @@ comb <- Clusters %>% filter(Cohort == 'ADNI') %>% mutate(RID = as.numeric(gsub("
 
 table(comb$Cluster_mc, comb$Cluster_adni)
 
+cm_df <- as.data.frame(table(comb$Cluster_mc, comb$Cluster_adni)) %>%
+  rename(`ADNI+OASIS` = Var1,
+         ADNI = Var2)
+
+ggplot(cm_df, aes(x = ADNI, y = `ADNI+OASIS`, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), color = "black", size = 5) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Confusion Matrix", fill = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(hjust = 1))
+
 # OASIS comparison
 
 comb <- Clusters %>% filter(Cohort == 'OASIS') %>% mutate(RID = as.numeric(gsub("OASIS_", "", RID))) %>%

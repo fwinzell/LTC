@@ -10,7 +10,7 @@ library(broom)
 library(lme4)
 library(lmerTest)
 
-dataset <- "oasis"
+dataset <- "adni"
 source("~/R/LTC/utils/analysis_utils.R")
 
 if (dataset == "adni") {
