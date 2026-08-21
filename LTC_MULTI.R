@@ -30,9 +30,10 @@ source("~/R/LTC/utils/model_utils.R")
 # Extra utils for clustering and visualization
 source("~/R/LTC/utils/cluster_utils.R")
 
-fit_inital = FALSE # set to FALSE to load previous initial model fitting
+fit_inital = TRUE # set to FALSE to load previous initial model fitting
 # 1. Load dataset
-multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
+#multi_cohort_df_ <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
+multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_2.csv", header = TRUE)
 
 # Filter out NACC
 multi_cohort_df <- filter_out(multi_cohort_df, Cohort == "NACC")
@@ -77,7 +78,7 @@ if (fit_inital) {
     logLikes = sapply(results, `[[`, "logLike")
   )
   
-  save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/nlmmBasic_AO.Rdata")
+  save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO.Rdata")
 } else {
   load("~/R/EDAP-data/LTC_MC/nlmmBasic.Rdata")
 }
@@ -204,7 +205,7 @@ for(ii in 1:1) {
   
     
     nlmmBest <- nlmmCandidates[[best_idx]]
-    save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/nlmmBest_AO.Rdata")
+    save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/new/nlmmBest_AO.Rdata")
     
     # Remove this pair
     clusterPairs <- clusterPairs[-1]
@@ -275,7 +276,7 @@ for(ii in 1:1) {
                  ll = nlmmBest$logLikes,
                  tree = adjMat)
   
-  save(multiLTC, file = "~/R/EDAP-data/LTC_MC/exp_km_ab_ao.Rdata")
+  save(multiLTC, file = "~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao.Rdata")
 }
 
 for(i in 1:length(clusterList)){
