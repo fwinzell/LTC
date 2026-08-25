@@ -30,7 +30,7 @@ source("~/R/LTC/utils/model_utils.R")
 # Extra utils for clustering and visualization
 source("~/R/LTC/utils/cluster_utils.R")
 
-fit_inital = TRUE # set to FALSE to load previous initial model fitting
+fit_inital = FALSE # set to FALSE to load previous initial model fitting
 # 1. Load dataset
 #multi_cohort_df_ <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
 multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_3.csv", header = TRUE)
@@ -80,7 +80,7 @@ if (fit_inital) {
   
   save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO.Rdata")
 } else {
-  load("~/R/EDAP-data/LTC_MC/nlmmBasic.Rdata")
+  load("~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO.Rdata")
 }
 
 cat("Inital models fitted to", round((dim(nlmmBasic$betas)[2]-1)/length(all.vars)*100), "% of variables") 
@@ -115,7 +115,7 @@ for(ii in 1:1) {
   nlmmBest <- fit_cluster_nlmms_foreach(data=mc_clust, run.vars=valid_vars, n_samples = 25, parallell = TRUE)
   #nlmmBest <- fit_cluster_nlmms_foreach_adni(mc_clust, verbose = FALSE, restart = TRUE, n_samples = 25, parallell = TRUE)
   
-  cat("2 Cluster models fitted to", round(length(nlmmBest$bic)/length(valid_vars)*100), "% of variables \n") 
+  cat("2 Cluster models fitted to", round(length(nlmmBest$bic)/length(all.vars)*100), "% of variables \n") 
   #save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/nlmmBest0.Rdata")
   
   while(length(clusterPairs)>0) {

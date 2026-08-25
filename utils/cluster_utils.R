@@ -37,20 +37,24 @@ evaluate_bics <- function(nlmmCandidates, all.vars) {
 }
 
 evaluate_bics_2 <- function(nlmmCandidates, all.vars, min_conv_rate=0.90) {
+  if (length(nlmmCandidates) < 2) {
+    return(1)
+  }
+  
   all.bics <- sapply(nlmmCandidates, function(x) {
     idx <- which(all.vars %in% names(x$betas))
     bics <- rep(NA, length(all.vars))
     bics[idx] <- x$bic
     return(bics)
-  } ) 
+  }, simplify = "matrix" ) 
   
   # Remove any clusterings that did not reach sufficient convergence rate
-  conv_rates <- lapply(2:ncol(all.bics), function(col) {
+  conv_rates <- sapply(2:ncol(all.bics), function(col) {
     x <- all.bics[,col]
     1-length(which(is.na(x)))/length(all.vars)
   })
   idxs <- c(1, which(conv_rates>min_conv_rate)+1)
-  all.bics <- all.bics[,idxs]
+  all.bics <- all.bics[,idxs, drop = FALSE]
   
   if (ncol(all.bics) == 1) {
     return(1)
