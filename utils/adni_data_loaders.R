@@ -15,17 +15,17 @@ ucsf_longitudinal_all <- function(only_vol=FALSE, filter_n=1, normalize=TRUE) {
   ucsf_data1 <- ucsf_data1 %>% select(all_of(cols))
   ucsf_data2 <- ucsf_data2 %>% select(all_of(cols))
   
-  ucsf_data <- rbind(ucsf_data1, ucsf_data2) %>% distinct(RID, VISCODE2, .keep_all = TRUE)
+  ucsf_data <- rbind(ucsf_data1, ucsf_data2) #%>% distinct(RID, VISCODE2, .keep_all = TRUE)
   
   ucsf_data3 <- ADNIMERGE2::UCSFFSL51ALL # 2022 base images
   cols <- intersect(colnames(ucsf_data), colnames(ucsf_data3))
   ucsf_data3 <- select(ucsf_data3, all_of(cols)) 
-  ucsf_data <- ucsf_data %>% rbind(ucsf_data3) %>% distinct(RID, VISCODE2, .keep_all = TRUE)
+  ucsf_data <- ucsf_data %>% rbind(ucsf_data3) #%>% distinct(RID, VISCODE2, .keep_all = TRUE)
   
   ucsf_data4 <- ADNIMERGE2::UCSFFSL51Y1 # 2016 base images
   cols <- intersect(colnames(ucsf_data), colnames(ucsf_data4))
   ucsf_data4 <- select(ucsf_data4, all_of(cols)) 
-  ucsf_data <- ucsf_data %>% rbind(ucsf_data4) %>% distinct(RID, VISCODE2, .keep_all = TRUE)
+  ucsf_data <- ucsf_data %>% rbind(ucsf_data4) #%>% distinct(RID, VISCODE2, .keep_all = TRUE)
   
   ucsf_data$RID <- as.numeric(ucsf_data$RID)
   
@@ -91,6 +91,11 @@ ucsf_longitudinal_all <- function(only_vol=FALSE, filter_n=1, normalize=TRUE) {
   
   ucsf_data <- filter(ucsf_data, OVERALLQC == "Pass") %>% rbind(ucsf_partial) %>%
     arrange(RID, Months)
+  
+  # Filter duplicated visits by taking the most recent processing (2022 vs 2016)
+  ucsf_data <- ucsf_data %>% group_by(RID, VISCODE2) %>%
+    slice_max(order_by = update_stamp, n = 1, with_ties = FALSE) %>%
+    ungroup()
   
   ucsf_data |> filter(!is.na(Months)) -> ucsf_data
   

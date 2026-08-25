@@ -9,3 +9,4 @@ tmp/
 *.RDataTmp
 .DS_Store
 LTC.Rproj
+*.pdf
