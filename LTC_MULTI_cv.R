@@ -32,7 +32,7 @@ source("~/R/LTC/utils/cluster_utils.R")
 
 fit_inital = FALSE # set to FALSE to load previous initial model fitting
 # 1. Load dataset
-multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
+multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_3.csv", header = TRUE)
 
 # Filter out NACC
 multi_cohort_df <- filter_out(multi_cohort_df, Cohort == "NACC")
@@ -77,9 +77,9 @@ if (fit_inital) {
     logLikes = sapply(results, `[[`, "logLike")
   )
   
-  save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/nlmmBasic_AO.Rdata")
+  save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/cross_validation/nlmmBasic_AO.Rdata")
 } else {
-  load("~/R/EDAP-data/LTC_MC/nlmmBasic_AO.Rdata")
+  load("~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO.Rdata")
 }
 
 cat("Inital models fitted to", round((dim(nlmmBasic$betas)[2]-1)/length(all.vars)*100), "% of variables") 
@@ -218,6 +218,7 @@ for(ii in 1:k) {
     }
   
     nlmmBest <- nlmmCandidates[[best_idx]]
+    save(nlmmBest, file = paste0("~/R/EDAP-data/LTC_MC/cross_validation/nlmmBest_AO_", ii, ".Rdata"))
     
     # Remove this pair
     clusterPairs <- clusterPairs[-1]
@@ -291,19 +292,5 @@ for(ii in 1:k) {
   save(multiLTC, file = paste0("~/R/EDAP-data/LTC_MC/cross_validation/exp_km_ab_ao_", ii, ".Rdata"))
 }
 
-for(i in 1:length(clusterList)){
-  print(i)
-  print(table(clusterList[[i]]$Cluster))
-}
 
-for(i in 1:length(treeIdx)){
-  print(table(clusterList[[treeIdx[i]]]$Cluster))
-}
-treeIdx
-
-
-plot_dendrogram(multiLTC, save=TRUE)
-
-
-cluster_df <- mutate(cluster_df, Cohort = gsub("_.*", "", RID))
 
