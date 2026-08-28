@@ -4,19 +4,19 @@ library(mclust)
 
 source("~/R/LTC/utils/cluster_utils.R")
 
-load("~/R/EDAP-data/LTC4/exp_km_ab.RData")
+load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao.RData")
 
 Clusters <- data.frame(
-  Cluster_0 = adniLTC@Cluster,
-  RID = adniLTC@RID
+  Cluster_0 = multiLTC@Cluster,
+  RID = multiLTC@RID
 )
 n <- length(unique(Clusters$Cluster_0))
 
 for (ii in 1:5) {
-  run <- sprintf("exp_km_ab_fold_%d", ii)
-  load(paste("~/R/EDAP-data/LTC4/cross_validation/", run, ".Rdata", sep = ""))
+  run <- sprintf("exp_km_ab_ao_%d", ii)
+  load(paste("~/R/EDAP-data/LTC_MC/cross_validation/", run, ".Rdata", sep = ""))
   
-  thisC <- data.frame(Cluster = adniLTC@Cluster, RID = adniLTC@RID)
+  thisC <- data.frame(Cluster = multiLTC@Cluster, RID = multiLTC@RID)
   
   colnames(thisC) <- c(sprintf("Cluster_%d", ii), "RID")
   Clusters <- Clusters %>% left_join(thisC, by = "RID")
@@ -25,7 +25,7 @@ for (ii in 1:5) {
 }
 
 
-rm(adniLTC)
+rm(multiLTC)
 
 table(Clusters$Cluster_0, Clusters$Cluster_1)
 table(Clusters$Cluster_0, Clusters$Cluster_2)

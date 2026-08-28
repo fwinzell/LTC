@@ -53,7 +53,7 @@ load_oasis_mri_data <- function(unified_norm=TRUE) {
   oasis_fs_data <- inner_join(oasis_fs_data, oasis_bl)
   
   oasis_fs_data$RID <- as.numeric(gsub("^OAS", "", oasis_fs_data$OASISID))
-  oasis_fs_data <- mutate(oasis_fs_data, Months = round(days_to_visit/30.5), Years = Months/12)
+  oasis_fs_data <- mutate(oasis_fs_data, Months = round(days_to_visit/30.5), Years = days_to_visit/365.15)
     
   return(oasis_fs_data)
 }

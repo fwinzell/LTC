@@ -10,10 +10,10 @@ library(broom)
 library(lme4)
 library(lmerTest)
 
-multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
+multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_3.csv", header = TRUE)
 
 run <- "exp_km_ab_ao"
-load(paste("~/R/EDAP-data/LTC_MC/", run, ".Rdata", sep = ""))
+load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
 
 adni_dl <- new.env()
 source("~/R/LTC/utils/adni_data_loaders.R", local=adni_dl)
@@ -50,13 +50,9 @@ multi_cohort_df$Stage <- cut(multi_cohort_df$Time,
                       include.lowest = TRUE)
 mri_cols <- c(grepv("^(RH_|LH_|CC_)", colnames(multi_cohort_df)), "BRAINSTEM")
 
-multi_cohort_df %>%
+ffs <- multi_cohort_df %>%
   count(RID, Time) %>%
-  filter(n > 1) %>% nrow()
-
-ucsf_data %>%
-  count(RID, Months) %>%
-  filter(n > 1) %>% nrow()
+  filter(n > 1)
 
 mc_df_z <- data.frame()
 

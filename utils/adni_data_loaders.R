@@ -93,7 +93,7 @@ ucsf_longitudinal_all <- function(only_vol=FALSE, filter_n=1, normalize=TRUE) {
     arrange(RID, Months)
   
   # Filter duplicated visits by taking the most recent processing (2022 vs 2016)
-  ucsf_data <- ucsf_data %>% group_by(RID, VISCODE2) %>%
+  ucsf_data <- ucsf_data %>% group_by(RID, EXAMDATE) %>%
     slice_max(order_by = update_stamp, n = 1, with_ties = FALSE) %>%
     ungroup()
   
