@@ -253,7 +253,7 @@ multi_cohort_df <- rbind(
 #  theme_minimal()
 
 # Save as .csv
-write.csv(multi_cohort_df, file = "~/R/EDAP-data/MULTI_COHORT_3.csv", row.names = FALSE)
+write.csv(multi_cohort_df, file = "~/R/EDAP-data/MULTI_COHORT_4.csv", row.names = FALSE)
 }
 
 
