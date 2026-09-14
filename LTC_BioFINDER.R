@@ -1,14 +1,11 @@
-#library(ADNIMERGE)
-library(ADNIMERGE2)
-library(progmod)
 library(tidyr)
 library(dplyr)
 library(tibble)
 library(ClusterR)
-#library(kml3d)
+
 library(progress)
 library(purrr)
-#library(mclust)
+
 library(caret)
 library(stringr)
 
@@ -22,8 +19,6 @@ library(doParallel)
 library(fst)
 
 # Useful functions for loading data and plotting trajectories
-source("~/R/LTC/utils/adni_data_loaders.R")
-
 # Clustering functions
 source("~/R/LTC/utils/clustering.R")
 
@@ -33,55 +28,44 @@ source("~/R/LTC/utils/model_utils.R")
 # Extra utils for clustering and visualization
 source("~/R/LTC/utils/cluster_utils.R")
 
-#### Initial steps ####
-fit_mcdp = FALSE # set to FALSE to load previous MCDP run
-fit_initial = FALSE # set to FALSE to load previous initial model fitting
-# 1. Load datasets
-ucsf_all <- ucsf_longitudinal_all(only_vol=TRUE, filter_n=0)
+# Data loading
+source("~/R/LTC/utils/biofinder_data_loaders.R")
 
-# Find AB positives
+fit_initial = TRUE
+
+mri_df <- get_mri_data(normalize = TRUE)
+
 ab_df <- get_ab_df()
 
-# Any positive Abeta biomarker at any time point
-ab_df %>% select(RID, AB_any) %>% group_by(RID) %>% 
-  mutate(AB_any = if_any(AB_any)) %>% distinct() %>% filter(AB_any) %>% 
-  select(RID) %>% unlist() -> ab_pos_rids_any
+ab_pos_ids <- ab_df %>% group_by(sid) %>% mutate(AB_any = any(AB)) %>% ungroup() %>%
+  filter(AB_any) %>% select(sid) %>% unlist()
 
-ucsf_ab <- ucsf_all %>% filter(RID %in% ab_pos_rids_any)
+mri_df <- filter(mri_df, sid %in% ab_pos_ids)
 
-length(unique(ucsf_ab$RID))
+dpm_res <- read.csv("~/R/EDAP-data/BioFINDER/DPM_BioFINDER.csv") %>% distinct(sid, time_shift)
 
-# 2. Fit MCDP model to estimate time-shift
-if (fit_mcdp) {
-  fit_dpm2 <- source("~/R/LTC/latent-time-shift/fit_dpm.R")$value
-  dpm_df <- fit_dpm2(scale_t=FALSE, scale_y=FALSE)
-  write.csv("~/R/EDAP-data/ADNI/DPM_ADNI.csv")
-} else {
-  dpm_df <- read.csv("~/R/EDAP-data/ADNI/DPM_ADNI.csv", header=TRUE)
-}
+mri_df <- left_join(mri_df, dpm_res, by="sid") %>% filter(!is.na(time_shift)) %>%
+  mutate(Time = Years + time_shift) %>%
+  rename(RID = sid)
 
-# Transform MRI data to latent time scale
-dpm_df |> select(RID, time_shift) |>
-  unique() |> inner_join(ucsf_ab, join_by(RID)) -> ucsf_ab
+ids <- unique(mri_df$RID)
 
-rids <- unique(ucsf_ab$RID)
+all.vars <- c(grepv("^(RH_|LH_)", colnames(mri_df)), "BRAINSTEM", "OPTICCHIASM")
 
-ucsf_ab$Time = ucsf_ab$Years + ucsf_ab$time_shift
-
-all.idxs <- grepl("^ST\\d+(CV|SV|SA|TA)$", colnames(ucsf_ab)) 
-all.vars <- colnames(ucsf_ab)[all.idxs == 1]
-
-# 3. Fit inital NLMMs
+# Parallell processing
 numCores <- detectCores()
-registerDoParallel(numCores)
+num_workers <- max(1L, min(8L, numCores-2L))
+cl <- parallel::makeCluster(num_workers)
+doParallel::registerDoParallel(num_workers)
 
 if (fit_initial) {
-  write_fst(ucsf_ab, "~/R/LTC/tmp/ucsf_ab.fst", compress=0)
+  write_fst(mri_df, "~/R/LTC/tmp/biofinder_df.fst", compress=0)
   system.time(
     foreach(i = seq_along(all.vars)) %dopar% {
       varname = all.vars[i]
+      #if (varname %in% dont.run) next
       
-      dsubset <- read_fst("~/R/LTC/tmp/ucsf_ab.fst", columns = c("RID", "Time", "DX.bl", varname))
+      dsubset <- read_fst("~/R/LTC/tmp/biofinder_df.fst", columns = c("RID", "Time", varname))
       dsubset <- dsubset %>% rename(y = varname, t = Time) %>% drop_na(y)
       result <- exp_nlmms_sample_fn(varname, dsubset, n_samples = 25, verbose=FALSE)
       
@@ -97,35 +81,43 @@ if (fit_initial) {
   betaList <- lapply(results, `[[`, "betas") 
   beta_df <- purrr::reduce(betaList, full_join, by = "RID")
   
+  func_params <- lapply(results, `[[`, "func_params")
+  func_params <- map2(func_params, all.vars, function(df, nm) {
+    df %>% rename_with(~ paste0(nm, ".", .x), c(slope, intercept))
+  })
+  func_df <- purrr::reduce(func_params, full_join, by = "RID")
+  
   nlmmBasic <- list(
     betas = beta_df,
     bic = sapply(results, `[[`, "bic"),
     aic = sapply(results, `[[`, "aic"),
-    logLikes = sapply(results, `[[`, "logLike")
+    logLikes = sapply(results, `[[`, "logLike"),
+    func_params = func_df
   )
   
-  save(nlmmBasic, file = "~/R/EDAP-data/LTC4/nlmmBasic.Rdata")
+  save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/new/nlmmBasic_bF.Rdata")
 } else {
-  load("~/R/EDAP-data/LTC4/nlmmBasic.Rdata")
+  load("~/R/EDAP-data/LTC_MC/new/nlmmBasic_bF.Rdata")
 }
 
-cat("Inital models fitted to", round(dim(nlmmBasic$betas)[2]/length(all.vars)*100), "% of variables") 
+cat("Inital models fitted to", round((dim(nlmmBasic$betas)[2]-1)/length(all.vars)*100), "% of variables") 
 cat("Mean BIC: ", mean(nlmmBasic$bic))
 
 #### KM, no cross-validation ####
 for(ii in 1:1) {
   set.seed(ii)
-  ucsf_clust <- ucsf_ab #%>% select(RID, time_shift, M, DX.bl, Months, Years, all_of(vars))
-  rids <- unique(ucsf_clust$RID)
+  mc_clust <- multi_cohort_df #%>% select(RID, time_shift, M, DX.bl, Months, Years, all_of(vars))
+  RIDs <- unique(mc_clust$RID)
   
   max_clusters <- 8
+  mcr <- 0.5 # minimal convergence rate
   
   clusterList <- list()
-  clusterList[[1]] <- data.frame(RID = rids, Cluster = 1, probs=NA) # One cluster
-  beta_0 <- nlmmBasic$betas %>% filter(RID %in% rids) %>%
+  clusterList[[1]] <- data.frame(RID = RIDs, Cluster = 1, probs=NA) # One cluster
+  beta_0 <- nlmmBasic$betas %>% filter(RID %in% RIDs) %>%
     mutate_all(~replace(., is.na(.), 0))
-
-  clusterList[[2]] <- random_clusters(beta_0) #betaKM(beta_0) # First clustering
+  
+  clusterList[[2]] <- betaKM(beta_0) # First clustering
   table(clusterList[[2]]$Cluster)
   clusterPairs <- list(c(1,2)) # Keep track of active cluster pairs that can be split
   curr_c = 2
@@ -135,17 +127,20 @@ for(ii in 1:1) {
   #for(c in unique(cluster_df$Cluster)) {
   #  clusterList[[c]] <- cluster_df$RID[which(cluster_df$Cluster == c)]
   #}
-  ucsf_clust <- ucsf_clust %>% left_join(clusterList[[curr_c]], by = "RID") 
-  nlmmBest <- fit_cluster_nlmms_foreach_adni(ucsf_clust, verbose = FALSE, restart = TRUE, n_samples = 25, parallell = TRUE)
+  mc_clust <- mc_clust %>% left_join(clusterList[[curr_c]], by = "RID") 
+  valid_vars <- colnames(nlmmBasic$betas)[-1]
+  nlmmBest <- fit_cluster_nlmms_foreach(data=mc_clust, run.vars=valid_vars, n_samples = 25, parallell = TRUE)
+  #nlmmBest <- fit_cluster_nlmms_foreach_adni(mc_clust, verbose = FALSE, restart = TRUE, n_samples = 25, parallell = TRUE)
   
   cat("2 Cluster models fitted to", round(length(nlmmBest$bic)/length(all.vars)*100), "% of variables \n") 
+  #save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/nlmmBest0.Rdata")
   
   while(length(clusterPairs)>0) {
-    ucsf_clust <- ucsf_ab %>% left_join(clusterList[[curr_c]], by = "RID") %>%
+    mc_clust <- multi_cohort_df %>% left_join(clusterList[[curr_c]], by = "RID") %>%
       drop_na(Cluster)
     #%>% select(RID, Month.bl, DX.bl, time_shift, Cluster, all_of(vars[1:25]))
     
-    clabels <- unique(ucsf_clust$Cluster)
+    clabels <- unique(mc_clust$Cluster)
     next_label <- max(clabels)+1
     if (next_label > max_clusters) {
       print("Maximum number of clusters reached without convergence")
@@ -162,13 +157,15 @@ for(ii in 1:1) {
     pair = clusterPairs[[1]]
     for(c in pair){
       cat("Splitting cluster ", c, " of ", pair, "\n")
-      ucsf_subset <- ucsf_clust %>% filter(Cluster == c)
+      ucsf_subset <- mc_clust %>% filter(Cluster == c)
       crids <- unique(ucsf_subset$RID)
       beta_subset <- nlmmBest$betas %>% filter(RID %in% crids) %>%
-        mutate_all(~replace(., is.na(.), 0)) %>%
-        select(where(~ sd(.x, na.rm = TRUE) != 0))
+        mutate(across(where(is.numeric), ~replace(., is.na(.), 0))) %>%
+        select(RID, where(~ is.numeric(.x) && sd(.x, na.rm = TRUE) != 0))
+      #mutate_all(~replace(., is.na(.), 0)) %>%
+      #select(where(~ sd(.x, na.rm = TRUE) != 0))
       
-      c_df <- random_clusters(beta_subset) #betaKM(beta_subset)
+      c_df <- betaKM(beta_subset)
       print(table(c_df$Cluster))
       
       # Only one cluster
@@ -187,8 +184,10 @@ for(ii in 1:1) {
         #c_df <- c_df %>% select(-P) %>% rbind(prev_c_df)
         c_df <- rbind(c_df, prev_c_df)
         
-        nlmmCandidates[[next_c]] <- ucsf_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
-          fit_cluster_nlmms_foreach(n_samples=25)
+        nlmmCandidates[[next_c]] <- mc_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
+          fit_cluster_nlmms_foreach(run.vars=valid_vars, n_samples = 25, parallell = TRUE)
+        
+        cat("New model fitted to", round(length(nlmmCandidates[[next_c]]$bic)/length(valid_vars)*100), "% of variables \n") 
         
         append_c <- length(clusterList)+1
         clusterList[[append_c]] <- c_df
@@ -203,8 +202,11 @@ for(ii in 1:1) {
       curr_c_df <- clusterList[[append_c]] %>% filter(RID %in% crids)
       c_df <- rbind(prev_c_df, curr_c_df)
       
-      nlmmCandidates[[next_c]] <- ucsf_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
-        fit_cluster_nlmms_foreach(n_samples=25)
+      nlmmCandidates[[next_c]] <- mc_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
+        fit_cluster_nlmms_foreach(run.vars=valid_vars, n_samples = 25, parallell = TRUE)
+      
+      cat("New model fitted to", round(length(nlmmCandidates[[next_c]]$bic)/length(valid_vars)*100), "% of variables \n") 
+      
       clusterList[[append_c+1]] <- c_df
       next_c = next_c + 1
     }
@@ -212,9 +214,15 @@ for(ii in 1:1) {
     # Find the best clustering
     bics <- sapply(nlmmCandidates, function(x) mean(x$bic))
     
-    best_idx <- evaluate_bics(nlmmCandidates)
+    if (length(nlmmCandidates) > 1) {
+      best_idx <- evaluate_bics_2(nlmmCandidates, valid_vars, min_conv_rate=mcr)
+    } else {
+      best_idx = 1
+    }
+    
     
     nlmmBest <- nlmmCandidates[[best_idx]]
+    save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/new/nlmmBest_AO.Rdata")
     
     # Remove this pair
     clusterPairs <- clusterPairs[-1]
@@ -263,7 +271,7 @@ for(ii in 1:1) {
   
   setClass("clusterObject",
            slots = c(
-             RID = "numeric",
+             RID = "factor",
              Cluster = "factor",
              varNames = "character",
              probs = "numeric",
@@ -274,18 +282,18 @@ for(ii in 1:1) {
              tree = "matrix"
            ))
   
-  adniLTC <- new("clusterObject",
-                 RID = cluster_df$RID,
-                 Cluster = cluster_df$Cluster,
-                 varNames = colnames(nlmmBest$betas)[-1],
-                 probs = NA_real_,
-                 betas = data.frame(nlmmBest$betas),
-                 BIC = nlmmBest$bic,
-                 AIC = nlmmBest$aic,
-                 ll = nlmmBest$logLikes,
-                 tree = adjMat)
+  multiLTC <- new("clusterObject",
+                  RID = cluster_df$RID,
+                  Cluster = cluster_df$Cluster,
+                  varNames = colnames(nlmmBest$betas)[-1],
+                  probs = NA_real_,
+                  betas = data.frame(nlmmBest$betas),
+                  BIC = nlmmBest$bic,
+                  AIC = nlmmBest$aic,
+                  ll = nlmmBest$logLikes,
+                  tree = adjMat)
   
-  save(adniLTC, file = "~/R/EDAP-data/LTC4/exp_km_ab.Rdata")
+  save(multiLTC, file = "~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao.Rdata")
 }
 
 for(i in 1:length(clusterList)){
@@ -299,5 +307,6 @@ for(i in 1:length(treeIdx)){
 treeIdx
 
 
-plot_dendrogram(adniLTC, save=TRUE)
+plot_dendrogram(multiLTC, save=TRUE)
+
 

@@ -7,10 +7,8 @@ library(Rtsne)
 library(paletteer)
 library(tidyr)
 library(broom)
-library(lme4)
-library(lmerTest)
 
-multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_3.csv", header = TRUE)
+multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
 
 run <- "exp_km_ab_ao"
 load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
@@ -74,12 +72,13 @@ for (varname in mri_cols) {
 }
 
 stages <- levels(multi_cohort_df$Stage)
-df_stage <- multi_cohort_df %>% filter(Stage == stages[4]) %>% 
+df_stage <- mc_df_z %>% filter(Stage == stages[4]) %>% 
   mutate(hippocampus = LH_HIPPOCAMPUS + RH_HIPPOCAMPUS)
 
 library(lme4)
 library(lmerTest)
-                
+library(emmeans)
+
 m0 <- lmer(
   hippocampus ~ Time + (1 | RID),
   data = df_stage,
@@ -92,5 +91,63 @@ m1 <- lmer(
   REML = FALSE
 )
 
+m2 <- lmer(
+  hippocampus ~ Time * Cluster + (1 | RID),
+  data = df_stage,
+  REML = FALSE
+)
+
+anova(m0, m1, m2)
+
+emm <- emmeans(m1, ~Cluster)
+pairs(emm, adjust='tukey')
+
+# Statistical test:
+# H0: no cluster effect after accounting for disease stage and global severity
+# H1: regional atrophy additionally differs between the clusters
+
+df_stage$global_z <- rowMeans(
+  df_stage[, setdiff(mri_cols, c("hippocampus", "LH_HIPPOCAMPUS", "RH_HIPPOCAMPUS"))],
+  na.rm = TRUE
+)
+
+m0 <- lmer(
+  hippocampus ~ Time + global_z + (1 | RID),
+  data = df_stage,
+  REML = FALSE
+)
+
+m1 <- lmer(
+  hippocampus ~ Time + global_z + Cluster + (1 | RID),
+  data = df_stage,
+  REML = FALSE
+)
+
 anova(m0, m1)
-               
+
+# Visualization:
+model <- lm(hippocampus ~ Time + global_z, 
+            data = df_stage)
+res <- resid(model)
+
+df_stage$hippocampus_res <- NA_real_
+df_stage$hippocampus_res[as.integer(names(res))] <- res
+
+ggplot(data = df_stage, aes(x=Cluster, y=hippocampus_res, fill=Cluster)) +
+  geom_violin(alpha = 0.5) + 
+  geom_point(size = 0.8, position = position_jitter(width = 0.2, height = 0), color = "black") +
+  scale_color_paletteer_d("ggthemes::Tableau_10") +
+  scale_fill_paletteer_d("ggthemes::Tableau_10") +
+  geom_hline(yintercept=0, linetype="dashed", color="black") +
+  theme_classic() 
+
+
+
+
+
+
+
+
+
+
+             

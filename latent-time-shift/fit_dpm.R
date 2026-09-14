@@ -138,10 +138,10 @@ fit_dpm2 <- function(scale_y=FALSE, scale_t=FALSE, include_hippo=FALSE) {
   adni_dpm <- adni_dpm %>%  mutate(invalid = !AB & CI) %>% filter(invalid == FALSE | is.na(invalid)) %>% 
     group_by(RID) %>% mutate(hasbl = any(VISCODE2 %in% c("bl", "sc"))) %>% ungroup() %>% filter(hasbl) 
   
+  # Indicator for negative AB baseline status
   ab.bl <- adni_dpm %>% select(RID, VISCODE2, AB) %>% drop_na(AB) %>% filter(VISCODE2 %in% c("bl", "sc")) %>% 
     mutate(negAB.bl = 1-AB) %>% select(RID, negAB.bl) %>% distinct()
   
-  # Indicator for negative AB baseline status
   adni_dpm <- left_join(adni_dpm, ab.bl, by = "RID") %>%
     drop_na(negAB.bl)
     #mutate(negAB.bl = ifelse(is.na(negAB.bl), 0, negAB.bl))

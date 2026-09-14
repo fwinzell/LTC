@@ -193,3 +193,32 @@ align_clusters <- function(align, to) {
   align <- factor(align, levels = LETTERS[1:c])
   return(align)
 }
+
+silhouette_plot <- function(Clusters, dmatrix) {
+  library(cluster)
+
+  df <- dmatrix[complete.cases(dmatrix), ] %>% left_join(Clusters, by="RID")
+
+  features <- df %>% select(-c(RID, Cluster)) %>% scale()
+  clusters <- df$Cluster %>% as.numeric()
+  
+  sil <- silhouette(clusters, dist(features))
+  
+  summary(sil)
+  
+  mean(sil[, "sil_width"])
+  
+  aggregate(
+    sil[, "sil_width"],
+    by = list(Cluster = clusters),
+    FUN = mean
+  )
+  
+  plot(
+    sil,
+    border = NA,
+    main = "Silhouette plot"
+  )
+}
+
+

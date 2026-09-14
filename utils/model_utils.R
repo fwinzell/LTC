@@ -235,6 +235,12 @@ exp_nlmms_sample_fn <- function(varname, dsubset, n_samples=100, verbose=FALSE) 
     
     rand <- rownames_to_column(rand, var = "RID")
     
+    fix <- fixef(exp_model)
+    func_params <- rand %>% mutate(
+      slope = fix['g'] * (1+gi),
+      intercept = fix['v'] + v
+    ) %>% select(-c(gi,v))
+    
     decline <- rand %>% select(RID, gi) # or gi!!
     colnames(decline) <- c("RID", varname)
     
@@ -244,7 +250,8 @@ exp_nlmms_sample_fn <- function(varname, dsubset, n_samples=100, verbose=FALSE) 
       betas = decline,
       bic = BIC(exp_model),
       aic = AIC(exp_model),
-      logLike = exp_model$logLik
+      logLike = exp_model$logLik,
+      func_params = func_params
     )
     rm(exp_model)
     

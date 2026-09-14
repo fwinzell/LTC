@@ -65,9 +65,16 @@ Clusters_new <- data.frame(
   RID = multiLTC@RID
 ) %>% mutate(Cohort = gsub("_.*", "", RID))
 
-comb <- left_join(Clusters_new, Clusters, by='RID')
+load(paste("~/R/EDAP-data/LTC_MC/new/fail_2/", run, ".Rdata", sep = ""))
 
-table(comb$Cluster_new, comb$Cluster_mc)
+Clusters_new_2 <- data.frame(
+  Cluster_fail = multiLTC@Cluster,
+  RID = multiLTC@RID
+) %>% mutate(Cohort = gsub("_.*", "", RID))
+
+comb <- left_join(Clusters_new, Clusters_new_2, by='RID')
+
+table(comb$Cluster_new, comb$Cluster_fail)
 
 cm_df <- as.data.frame(table(comb$Cluster_mc, comb$Cluster_adni)) %>%
   rename(`ADNI+OASIS` = Var1,

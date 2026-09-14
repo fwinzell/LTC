@@ -71,14 +71,21 @@ if (fit_inital) {
   betaList <- lapply(results, `[[`, "betas") 
   beta_df <- purrr::reduce(betaList, full_join, by = "RID")
   
+  func_params <- lapply(results, `[[`, "func_params")
+  func_params <- map2(func_params, all.vars, function(df, nm) {
+    df %>% rename_with(~ paste0(nm, ".", .x), c(slope, intercept))
+  })
+  func_df <- purrr::reduce(func_params, full_join, by = "RID")
+  
   nlmmBasic <- list(
     betas = beta_df,
     bic = sapply(results, `[[`, "bic"),
     aic = sapply(results, `[[`, "aic"),
-    logLikes = sapply(results, `[[`, "logLike")
+    logLikes = sapply(results, `[[`, "logLike"),
+    func_params = func_df
   )
   
-  save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO.Rdata")
+  save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO_fp.Rdata")
 } else {
   load("~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO.Rdata")
 }
