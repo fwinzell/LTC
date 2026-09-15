@@ -185,7 +185,7 @@ get_mri_data <- function(normalize=TRUE) {
     left_join(bl_dates, by="sid") %>%
     mutate(Years = interval(baseline_date, mri_date) / years(1))
   
-  mri_df <- inner_join(mri_df, dx_df, by='sid') 
+  mri_df <- left_join(mri_df, dx_df, by='sid') 
   
   mri_df <- select(mri_df, 
                    -c("samseg_vols_3rd_Ventricle", "samseg_vols_4th_Ventricle", "samseg_vols_5th_Ventricle", 
