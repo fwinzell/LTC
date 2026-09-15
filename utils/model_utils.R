@@ -263,7 +263,7 @@ exp_nlmms_sample_fn <- function(varname, dsubset, n_samples=100, verbose=FALSE) 
 }
 
 fit_one_cluster_nlmm_fn <- function(varname, data) {
-  data |> select(RID, Time, DX.bl, Cluster, all_of(varname)) |> 
+  data |> select(RID, Time, Cluster, all_of(varname)) |> 
     rename(y = varname, t = Time, c = Cluster) %>% mutate(c = as.factor(c)) %>% 
     na.omit() -> dsubset
   
@@ -492,7 +492,7 @@ fit_cluster_nlmms_foreach <- function(data, run.vars, verbose=FALSE, n_samples=2
     foreach(i = seq_along(run.vars)) %dopar% {
       varname = run.vars[i]
       dsubset <- read_fst("~/R/LTC/tmp/cluster_data.fst", 
-                          columns = c("RID", "Time", "DX.bl", "Cluster", varname))
+                          columns = c("RID", "Time", "Cluster", varname))
       dsubset <- dsubset %>% rename(y = varname, t = Time, c = Cluster) %>% mutate(c = as.factor(c)) %>% 
         na.omit() -> dsubset
       result <- fit_one_cluster_nlmm_sample_fn(varname, dsubset, n_samples = n_samples, verbose=verbose)
@@ -502,7 +502,7 @@ fit_cluster_nlmms_foreach <- function(data, run.vars, verbose=FALSE, n_samples=2
   } else {
     foreach(i = seq_along(run.vars)) %do% {
       varname = run.vars[i]
-      dsubset <- select(data, RID, Time, DX.bl, Cluster, all_of(varname))
+      dsubset <- select(data, RID, Time, Cluster, all_of(varname))
       dsubset <- dsubset %>% rename(y = varname, t = Time, c = Cluster) %>% mutate(c = as.factor(c)) %>% 
         na.omit() -> dsubset
       result <- fit_one_cluster_nlmm_sample_fn(varname, dsubset, n_samples = n_samples, verbose=verbose)
@@ -542,7 +542,7 @@ fit_cluster_nlmms_slow <- function(ucsf_data, silent=FALSE, n_samples=25) {
   results <- list()
   for (i in seq_along(all.vars))  {
     varname = run.vars[i]
-    dsubset <- select(ucsf_data, RID, Time, DX.bl, Cluster, all_of(varname))
+    dsubset <- select(ucsf_data, RID, Time, Cluster, all_of(varname))
     dsubset <- dsubset %>% rename(y = varname, t = Time, c = Cluster) %>% mutate(c = as.factor(c)) %>% 
       na.omit() -> dsubset
     results[[i]] <- fit_one_cluster_nlmm_sample_fn(varname, dsubset, n_samples = n_samples, verbose=TRUE)

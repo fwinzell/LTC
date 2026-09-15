@@ -31,9 +31,9 @@ source("~/R/LTC/utils/cluster_utils.R")
 # Data loading
 source("~/R/LTC/utils/biofinder_data_loaders.R")
 
-fit_initial = TRUE
+fit_initial = FALSE
 
-mri_df <- get_mri_data(normalize = TRUE)
+mri_df <- get_mri_data(normalize = TRUE) %>% select(-OPTICCHIASM)
 
 ab_df <- get_ab_df()
 
@@ -50,7 +50,7 @@ mri_df <- left_join(mri_df, dpm_res, by="sid") %>% filter(!is.na(time_shift)) %>
 
 ids <- unique(mri_df$RID)
 
-all.vars <- c(grepv("^(RH_|LH_)", colnames(mri_df)), "BRAINSTEM", "OPTICCHIASM")
+all.vars <- c(grepv("^(RH_|LH_)", colnames(mri_df)), "BRAINSTEM") #, "OPTICCHIASM")
 
 # Parallell processing
 numCores <- detectCores()
@@ -82,7 +82,7 @@ if (fit_initial) {
   beta_df <- purrr::reduce(betaList, full_join, by = "RID")
   
   func_params <- lapply(results, `[[`, "func_params")
-  func_params <- map2(func_params, all.vars, function(df, nm) {
+  func_params <- map2(func_params, intersect(all.vars, colnames(beta_df)), function(df, nm) {
     df %>% rename_with(~ paste0(nm, ".", .x), c(slope, intercept))
   })
   func_df <- purrr::reduce(func_params, full_join, by = "RID")
@@ -106,15 +106,15 @@ cat("Mean BIC: ", mean(nlmmBasic$bic))
 #### KM, no cross-validation ####
 for(ii in 1:1) {
   set.seed(ii)
-  mc_clust <- multi_cohort_df #%>% select(RID, time_shift, M, DX.bl, Months, Years, all_of(vars))
-  RIDs <- unique(mc_clust$RID)
+  df_clust <- mri_df
+  ids <- unique(df_clust$RID)
   
   max_clusters <- 8
   mcr <- 0.5 # minimal convergence rate
   
   clusterList <- list()
-  clusterList[[1]] <- data.frame(RID = RIDs, Cluster = 1, probs=NA) # One cluster
-  beta_0 <- nlmmBasic$betas %>% filter(RID %in% RIDs) %>%
+  clusterList[[1]] <- data.frame(RID = ids, Cluster = 1, probs=NA) # One cluster
+  beta_0 <- nlmmBasic$betas %>% filter(RID %in% ids) %>%
     mutate_all(~replace(., is.na(.), 0))
   
   clusterList[[2]] <- betaKM(beta_0) # First clustering
@@ -127,20 +127,20 @@ for(ii in 1:1) {
   #for(c in unique(cluster_df$Cluster)) {
   #  clusterList[[c]] <- cluster_df$RID[which(cluster_df$Cluster == c)]
   #}
-  mc_clust <- mc_clust %>% left_join(clusterList[[curr_c]], by = "RID") 
+  df_clust <- df_clust %>% left_join(clusterList[[curr_c]], by = "RID") 
   valid_vars <- colnames(nlmmBasic$betas)[-1]
-  nlmmBest <- fit_cluster_nlmms_foreach(data=mc_clust, run.vars=valid_vars, n_samples = 25, parallell = TRUE)
-  #nlmmBest <- fit_cluster_nlmms_foreach_adni(mc_clust, verbose = FALSE, restart = TRUE, n_samples = 25, parallell = TRUE)
+  nlmmBest <- fit_cluster_nlmms_foreach(data=df_clust, run.vars=valid_vars, n_samples = 25, parallell = TRUE)
+  #nlmmBest <- fit_cluster_nlmms_foreach_adni(df_clust, verbose = FALSE, restart = TRUE, n_samples = 25, parallell = TRUE)
   
   cat("2 Cluster models fitted to", round(length(nlmmBest$bic)/length(all.vars)*100), "% of variables \n") 
   #save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/nlmmBest0.Rdata")
   
   while(length(clusterPairs)>0) {
-    mc_clust <- multi_cohort_df %>% left_join(clusterList[[curr_c]], by = "RID") %>%
+    df_clust <- mri_df %>% left_join(clusterList[[curr_c]], by = "RID") %>%
       drop_na(Cluster)
     #%>% select(RID, Month.bl, DX.bl, time_shift, Cluster, all_of(vars[1:25]))
     
-    clabels <- unique(mc_clust$Cluster)
+    clabels <- unique(df_clust$Cluster)
     next_label <- max(clabels)+1
     if (next_label > max_clusters) {
       print("Maximum number of clusters reached without convergence")
@@ -157,8 +157,8 @@ for(ii in 1:1) {
     pair = clusterPairs[[1]]
     for(c in pair){
       cat("Splitting cluster ", c, " of ", pair, "\n")
-      ucsf_subset <- mc_clust %>% filter(Cluster == c)
-      crids <- unique(ucsf_subset$RID)
+      df_subset <- df_clust %>% filter(Cluster == c)
+      crids <- unique(df_subset$RID)
       beta_subset <- nlmmBest$betas %>% filter(RID %in% crids) %>%
         mutate(across(where(is.numeric), ~replace(., is.na(.), 0))) %>%
         select(RID, where(~ is.numeric(.x) && sd(.x, na.rm = TRUE) != 0))
@@ -184,7 +184,7 @@ for(ii in 1:1) {
         #c_df <- c_df %>% select(-P) %>% rbind(prev_c_df)
         c_df <- rbind(c_df, prev_c_df)
         
-        nlmmCandidates[[next_c]] <- mc_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
+        nlmmCandidates[[next_c]] <- df_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
           fit_cluster_nlmms_foreach(run.vars=valid_vars, n_samples = 25, parallell = TRUE)
         
         cat("New model fitted to", round(length(nlmmCandidates[[next_c]]$bic)/length(valid_vars)*100), "% of variables \n") 
@@ -202,7 +202,7 @@ for(ii in 1:1) {
       curr_c_df <- clusterList[[append_c]] %>% filter(RID %in% crids)
       c_df <- rbind(prev_c_df, curr_c_df)
       
-      nlmmCandidates[[next_c]] <- mc_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
+      nlmmCandidates[[next_c]] <- df_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
         fit_cluster_nlmms_foreach(run.vars=valid_vars, n_samples = 25, parallell = TRUE)
       
       cat("New model fitted to", round(length(nlmmCandidates[[next_c]]$bic)/length(valid_vars)*100), "% of variables \n") 
@@ -222,7 +222,7 @@ for(ii in 1:1) {
     
     
     nlmmBest <- nlmmCandidates[[best_idx]]
-    save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/new/nlmmBest_AO.Rdata")
+    save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/new/nlmmBest_bF.Rdata")
     
     # Remove this pair
     clusterPairs <- clusterPairs[-1]
@@ -282,7 +282,7 @@ for(ii in 1:1) {
              tree = "matrix"
            ))
   
-  multiLTC <- new("clusterObject",
+  bFLTC <- new("clusterObject",
                   RID = cluster_df$RID,
                   Cluster = cluster_df$Cluster,
                   varNames = colnames(nlmmBest$betas)[-1],
@@ -293,7 +293,7 @@ for(ii in 1:1) {
                   ll = nlmmBest$logLikes,
                   tree = adjMat)
   
-  save(multiLTC, file = "~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao.Rdata")
+  save(bFLTC, file = "~/R/EDAP-data/LTC_MC/new/exp_km_ab_bf.Rdata")
 }
 
 for(i in 1:length(clusterList)){
@@ -307,6 +307,221 @@ for(i in 1:length(treeIdx)){
 treeIdx
 
 
-plot_dendrogram(multiLTC, save=TRUE)
+plot_dendrogram(bFLTC, save=FALSE)
+
+
+
+#### Cross-validation ####
+set.seed(666)
+create_strat_folds <- function(df, k = 5) {
+  subjects <- df %>% select(RID, diag.bl) %>% unique()
+  
+  folds <- caret::createFolds(subjects$diag.bl, k = k, returnTrain = TRUE)
+  
+  rid_folds <- lapply(folds, function(fold) {
+    subjects[fold, "RID"]
+  })
+  
+  return(rid_folds)
+}
+
+k=5
+folds <- create_strat_folds(mri_df, k=k)
+
+
+for(ii in 1:k) {
+  fold_rids <- folds[[ii]]
+  df_clust <- filter(mri_df, RID %in% fold_rids$RID)
+  rids <- unique(df_clust$RID)
+  
+  max_clusters <- 8
+  mcr <- 0.5 # minimal convergence rate
+  
+  clusterList <- list()
+  clusterList[[1]] <- data.frame(RID = rids, Cluster = 1, probs=NA) # One cluster
+  beta_0 <- nlmmBasic$betas %>% filter(RID %in% rids) %>%
+    mutate_all(~replace(., is.na(.), 0))
+  
+  clusterList[[2]] <- betaKM(beta_0) # First clustering
+  table(clusterList[[2]]$Cluster)
+  clusterPairs <- list(c(1,2)) # Keep track of active cluster pairs that can be split
+  curr_c = 2
+  
+  treeIdx <- c(1,2)
+  
+  #for(c in unique(cluster_df$Cluster)) {
+  #  clusterList[[c]] <- cluster_df$RID[which(cluster_df$Cluster == c)]
+  #}
+  df_clust <- df_clust %>% left_join(clusterList[[curr_c]], by = "RID") 
+  valid_vars <- colnames(nlmmBasic$betas)[-1]
+  nlmmBest <- fit_cluster_nlmms_foreach(data=df_clust, run.vars=valid_vars, n_samples = 25, parallell = TRUE)
+  #nlmmBest <- fit_cluster_nlmms_foreach_adni(df_clust, verbose = FALSE, restart = TRUE, n_samples = 25, parallell = TRUE)
+  
+  cat("2 Cluster models fitted to", round(length(nlmmBest$bic)/length(valid_vars)*100), "% of variables \n") 
+  #save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/nlmmBest0.Rdata")
+  
+  while(length(clusterPairs)>0) {
+    df_clust <- multi_cohort_df %>% left_join(clusterList[[curr_c]], by = "RID") %>%
+      drop_na(Cluster)
+    #%>% select(RID, Month.bl, DX.bl, time_shift, Cluster, all_of(vars[1:25]))
+    
+    clabels <- unique(df_clust$Cluster)
+    next_label <- max(clabels)+1
+    if (next_label > max_clusters) {
+      print("Maximum number of clusters reached without convergence")
+      break
+    }
+    
+    nlmmCandidates <- list()
+    nlmmCandidates[[1]] <- nlmmBest
+    next_c = 2
+    
+    # Collect cluster candidates
+    newPairs = c()
+    # Pop the first cluster pair
+    pair = clusterPairs[[1]]
+    for(c in pair){
+      cat("Splitting cluster ", c, " of ", pair, "\n")
+      ucsf_subset <- df_clust %>% filter(Cluster == c)
+      crids <- unique(ucsf_subset$RID)
+      beta_subset <- nlmmBest$betas %>% filter(RID %in% crids) %>%
+        mutate(across(where(is.numeric), ~replace(., is.na(.), 0))) %>%
+        select(RID, where(~ is.numeric(.x) && sd(.x, na.rm = TRUE) != 0))
+      #mutate_all(~replace(., is.na(.), 0)) %>%
+      #select(where(~ sd(.x, na.rm = TRUE) != 0))
+      
+      c_df <- betaKM(beta_subset)
+      print(table(c_df$Cluster))
+      
+      # Only one cluster
+      if (any(c_df$Cluster == 0)) {
+        print("only one cluster - continues")
+        #nlmmCandidates[[next_c]] <- nlmmCandidates[[1]]
+        #next_c = next_c + 1
+      } else {
+        c_df <- c_df %>% mutate(Cluster = ifelse(Cluster == 1, c, next_label))
+        
+        newPairs <- c(newPairs, list(c(c, next_label)))
+        
+        next_label = next_label+1 # Update next label
+        # Add "Old" branch from other cluster to the clustering
+        prev_c_df <- clusterList[[curr_c]] %>% filter(!(RID %in% crids))
+        #c_df <- c_df %>% select(-P) %>% rbind(prev_c_df)
+        c_df <- rbind(c_df, prev_c_df)
+        
+        nlmmCandidates[[next_c]] <- df_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
+          fit_cluster_nlmms_foreach(run.vars=valid_vars, n_samples = 25, parallell = TRUE)
+        
+        cat("New model fitted to", round(length(nlmmCandidates[[next_c]]$bic)/length(valid_vars)*100), "% of variables \n") 
+        
+        append_c <- length(clusterList)+1
+        clusterList[[append_c]] <- c_df
+        next_c = next_c + 1
+      }
+    }
+    # All combined if we have done two splits
+    if(length(newPairs) == 2) {
+      # Merge previous two clustering
+      print(paste("Evaluating 4 cluster solution with of pairs", newPairs[1], newPairs[2]))
+      prev_c_df <- clusterList[[append_c-1]] %>% filter(!(RID %in% crids))
+      curr_c_df <- clusterList[[append_c]] %>% filter(RID %in% crids)
+      c_df <- rbind(prev_c_df, curr_c_df)
+      
+      nlmmCandidates[[next_c]] <- df_clust %>% select(-Cluster) %>% left_join(c_df, by = "RID") %>%
+        fit_cluster_nlmms_foreach(run.vars=valid_vars, n_samples = 25, parallell = TRUE)
+      
+      cat("New model fitted to", round(length(nlmmCandidates[[next_c]]$bic)/length(valid_vars)*100), "% of variables \n") 
+      
+      clusterList[[append_c+1]] <- c_df
+      next_c = next_c + 1
+    }
+    
+    # Find the best clustering
+    bics <- sapply(nlmmCandidates, function(x) mean(x$bic))
+    
+    if (length(nlmmCandidates) > 1) {
+      best_idx <- evaluate_bics_2(nlmmCandidates, valid_vars, min_conv_rate=mcr)
+    } else {
+      best_idx = 1
+    }
+    
+    nlmmBest <- nlmmCandidates[[best_idx]]
+    save(nlmmBest, file = paste0("~/R/EDAP-data/LTC_MC/cross_validation/nlmmBest_bF_", ii, ".Rdata"))
+    
+    # Remove this pair
+    clusterPairs <- clusterPairs[-1]
+    
+    if(best_idx == 1) {
+      # do nothing, we are done with this pair
+      new_best_c <- curr_c
+    } else if(best_idx == 4) {
+      # add both clusters to the list of cluster pairs
+      new_best_c <- length(clusterList)
+      clusterPairs <- c(clusterPairs, newPairs)
+      cat("Added new pairs: ", newPairs[[1]], " and ", newPairs[[2]], "\n")
+      treeIdx <- c(treeIdx, new_best_c)
+    } else {
+      # add only the new cluster pair
+      new_best_c <- length(clusterList)+(best_idx-ncol(all.bics))
+      clusterPairs <- c(clusterPairs, newPairs[best_idx-1])
+      cat("Added new pair: ", newPairs[[best_idx-1]], "\n")
+      treeIdx <- c(treeIdx, new_best_c)
+    }
+    
+    # Make a better tree solution?
+    curr_c <- new_best_c
+    print("Current best:")
+    print(table( clusterList[[curr_c]]$Cluster ))
+  }
+  
+  cluster_df <- clusterList[[new_best_c]]
+  
+  # Assign new letter labels 
+  ctab <- table(cluster_df$Cluster)
+  mapping <- setNames(LETTERS[seq_along(ctab)], names(ctab))
+  cluster_df$Cluster <- as.factor(mapping[as.character(cluster_df$Cluster)])
+  
+  # Make tree
+  #treeIdx <- treeIdx[1:length(treeIdx)-1]
+  adjMat <- matrix(data = NA, nrow = length(ctab), ncol = length(treeIdx),
+                   dimnames = list(levels(cluster_df$Cluster), treeIdx))
+  
+  for (j in treeIdx) {
+    tab <- table(clusterList[[j]]$Cluster)
+    adjMat[1:length(tab), as.character(j)] <- tab
+  }
+  
+  table(cluster_df$Cluster)
+  
+  setClass("clusterObject",
+           slots = c(
+             RID = "factor",
+             Cluster = "factor",
+             varNames = "character",
+             probs = "numeric",
+             betas = "data.frame",
+             BIC = "numeric",
+             AIC = "numeric",
+             ll = "numeric",
+             tree = "matrix"
+           ))
+  
+  bFLTC <- new("clusterObject",
+                  RID = cluster_df$RID,
+                  Cluster = cluster_df$Cluster,
+                  varNames = colnames(nlmmBest$betas)[-1],
+                  probs = NA_real_,
+                  betas = data.frame(nlmmBest$betas),
+                  BIC = nlmmBest$bic,
+                  AIC = nlmmBest$aic,
+                  ll = nlmmBest$logLikes,
+                  tree = adjMat)
+  
+  save(bFLTC, file = paste0("~/R/EDAP-data/LTC_MC/cross_validation/exp_km_ab_bf_", ii, ".Rdata"))
+}
+
+
+
+
 
 

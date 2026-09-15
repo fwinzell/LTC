@@ -149,6 +149,19 @@ get_biofinder_dpm <- function(path = "~/R/EDAP-data/BioFINDER/data_for_Filip/dat
 get_mri_data <- function(normalize=TRUE) {
   biofinder <- read.csv("~/R/EDAP-data/BioFINDER/data_for_Filip/data_filip.csv")
   
+  dx_df <- biofinder %>% select(sid, Visit, visit_date, 
+                                 diagnosis_baseline_variable, cognitive_status_baseline_variable,
+                                 cdr_global_clinical) %>%
+    # Impute missing diagnosis
+    mutate(diag.bl = ifelse(
+      cognitive_status_baseline_variable == "TBD",
+      ifelse(cdr_global_clinical >= 1.0, "Dementia", 
+             ifelse(cdr_global_clinical >= 0.5, "MCI", "Normal")),
+      cognitive_status_baseline_variable
+    ),
+    diag.bl = factor(diag.bl, levels = c("Normal", "SCD", "MCI", "Dementia"))
+    ) %>% drop_na(diag.bl) %>% distinct(sid, diag.bl) 
+  
   biofinder <- mutate(biofinder, visit_date_filled = ifelse(trimws(visit_date) == "", mmse_date, visit_date))
   bl_dates <- biofinder %>% 
     distinct(sid, Visit, visit_date_filled) %>% filter(Visit == 0) %>%
@@ -171,6 +184,8 @@ get_mri_data <- function(normalize=TRUE) {
   mri_df <- full_join(cortical_vols, subcortical_df, by=intersect(colnames(subcortical_df), colnames(cortical_vols))) %>%
     left_join(bl_dates, by="sid") %>%
     mutate(Years = interval(baseline_date, mri_date) / years(1))
+  
+  mri_df <- inner_join(mri_df, dx_df, by='sid') 
   
   mri_df <- select(mri_df, 
                    -c("samseg_vols_3rd_Ventricle", "samseg_vols_4th_Ventricle", "samseg_vols_5th_Ventricle", 
@@ -295,6 +310,25 @@ test_things <- function() {
     geom_hline(yintercept = 0.080, linetype = "dashed")
   
   table(biofinder$Dx_ab)
+  
+  
+  ### DX ###
+  dx_df <- select(biofinder, sid, Visit,
+                  diagnosis_baseline_variable, underlying_etiology_text_baseline_variable, 
+                  etiology_genetic_variant_baseline_variable, etiology_extra_comment_baseline_variable,
+                  cognitive_status_baseline_variable, converted_dementia_date_baseline_variable,
+                  converted_dementia_dich_baseline_variable, last_visit_date_dementia_nonconverted_baseline_variable,
+                  converted_MCI_date_baseline_variable, converted_MCI_dich_baseline_variable, 
+                  last_visit_date_MCI_nonconverted_baseline_variable, PDrel_susp_dis_dich_baseline_baseline_variable, neuropathology_done_baseline_variable,                   
+                  gds_clinical, cdr_global_clinical, cdr_sum_of_boxes_clinical, last_visit_date_Pdrel_dis_nonconverted_baseline_variable
+                  ) 
+  
+  tbds <- filter(dx_df, cognitive_status_baseline_variable == "TBD") %>% distinct(sid) %>% unlist()
+  
+  dx_df <- filter(dx_df, sid %in% tbds)
+  
+  
+  
   
 }
 

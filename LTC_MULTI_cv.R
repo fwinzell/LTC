@@ -89,7 +89,7 @@ cat("Mean BIC: ", mean(nlmmBasic$bic))
 create_strat_folds <- function(df, k = 5) {
   df %>% select(RID, DX.bl) %>% unique() -> subjects  
   
-  folds <- caret::createFolds(subjects$DX.bl, k = 5)
+  folds <- caret::createFolds(subjects$DX.bl, k = k)
   
   idx_folds <- lapply(folds, function(rids) {
     which(df$RID %in% subjects[rids, "RID"])
