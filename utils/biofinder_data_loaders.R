@@ -167,10 +167,15 @@ get_mri_data <- function(normalize=TRUE) {
     distinct(sid, Visit, visit_date_filled) %>% filter(Visit == 0) %>%
     select(-Visit) %>% rename(baseline_date = visit_date_filled)
   
-  cortical_vols <- readxl::read_excel("~/R/EDAP-data/BioFINDER/data_for_Filip/cortical_vols_filip.xlsx") 
+  cortical_vols <- readxl::read_excel("~/R/EDAP-data/BioFINDER/data_for_Filip/cortical_vols_filip.xlsx") %>%
+    filter(!is.na(sid))
   cortical_vols <- filter(cortical_vols, !if_all(colnames(cortical_vols), is.na)) %>%
     mutate(mri_date = str_extract(csv_icv__index, "\\d{8}"),
            mri_date = ymd(mri_date)) 
+  
+  counts <- cortical_vols %>% group_by(sid) %>% summarise(n_obs = n()) 
+  mean(counts$n_obs)
+  sd(counts$n_obs)
   
   subcortical_vols <- grepv("samseg_vols", colnames(biofinder))
   subcortical_df <- biofinder %>% select(sid, Visit, cognitive_status_baseline_variable, diagnosis_baseline_variable,

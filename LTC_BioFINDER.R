@@ -53,6 +53,14 @@ ids <- unique(mri_df$RID)
 
 all.vars <- c(grepv("^(RH_|LH_)", colnames(mri_df)), "BRAINSTEM") #, "OPTICCHIASM")
 
+# Count observations
+counts <- mri_df %>%
+  group_by(RID) %>%
+  summarise(n_obs = n())
+
+mean(counts$n_obs)
+sd(counts$n_obs)
+
 # Parallell processing
 numCores <- detectCores()
 num_workers <- max(1L, min(8L, numCores-2L))

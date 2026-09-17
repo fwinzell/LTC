@@ -30,7 +30,7 @@ source("~/R/LTC/utils/model_utils.R")
 # Extra utils for clustering and visualization
 source("~/R/LTC/utils/cluster_utils.R")
 
-fit_inital = TRUE # set to FALSE to load previous initial model fitting
+fit_inital = FALSE # set to FALSE to load previous initial model fitting
 # 1. Load dataset
 #multi_cohort_df_ <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
 multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
@@ -39,6 +39,14 @@ multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
 multi_cohort_df <- filter_out(multi_cohort_df, Cohort == "NACC")
 
 all.vars <- c(grepv("^(RH_|LH_|CC_)", colnames(multi_cohort_df)), "BRAINSTEM")
+
+# Count observations
+counts <- multi_cohort_df %>%
+  group_by(RID) %>%
+  summarise(n_obs = n())
+
+mean(counts$n_obs)
+sd(counts$n_obs)
 
 # 3. Fit inital NLMMs
 numCores <- detectCores()
@@ -87,15 +95,21 @@ if (fit_inital) {
   
   save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO_fp.Rdata")
 } else {
-  load("~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO.Rdata")
+  load("~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO_fp.Rdata")
 }
 
 cat("Inital models fitted to", round((dim(nlmmBasic$betas)[2]-1)/length(all.vars)*100), "% of variables") 
 cat("Mean BIC: ", mean(nlmmBasic$bic))
 
+bic_scores <- list()
+bic_scores[[1]] <- mean(nlmmBasic$bic)
+
+sil_scores <- list()
+sil_scores[[1]] <- data.frame(cluster=NA, neighbor=NA, sil_width=NA)
+
 #### KM, no cross-validation ####
 for(ii in 1:1) {
-  set.seed(ii)
+  set.seed(ii+666)
   mc_clust <- multi_cohort_df #%>% select(RID, time_shift, M, DX.bl, Months, Years, all_of(vars))
   rids <- unique(mc_clust$RID)
   
@@ -124,6 +138,9 @@ for(ii in 1:1) {
   
   cat("2 Cluster models fitted to", round(length(nlmmBest$bic)/length(all.vars)*100), "% of variables \n") 
   #save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/nlmmBest0.Rdata")
+  
+  sil_scores[[2]] <- silhouette_score(clusterList[[2]], nlmmBasic$func_params)
+  bic_scores[[2]] <- mean(nlmmBest$bic)
   
   while(length(clusterPairs)>0) {
     mc_clust <- multi_cohort_df %>% left_join(clusterList[[curr_c]], by = "RID") %>%
@@ -182,6 +199,9 @@ for(ii in 1:1) {
         append_c <- length(clusterList)+1
         clusterList[[append_c]] <- c_df
         next_c = next_c + 1
+        
+        bic_scores[[append_c]] <- mean(nlmmCandidates[[next_c]]$bic)
+        sil_scores[[append_c]] <- silhouette_score(c_df, nlmmBasic$func_params)
       }
     }
     # All combined if we have done two splits
@@ -199,6 +219,9 @@ for(ii in 1:1) {
       
       clusterList[[append_c+1]] <- c_df
       next_c = next_c + 1
+      
+      bic_scores[[append_c]] <- mean(nlmmCandidates[[next_c]]$bic)
+      sil_scores[[append_c]] <- silhouette_score(c_df, nlmmBasic$func_params)
     }
     
     # Find the best clustering
@@ -238,6 +261,8 @@ for(ii in 1:1) {
     curr_c <- new_best_c
     print("Current best:")
     print(table( clusterList[[curr_c]]$Cluster ))
+    
+    
   }
   
   cluster_df <- clusterList[[new_best_c]]
@@ -283,7 +308,7 @@ for(ii in 1:1) {
                  ll = nlmmBest$logLikes,
                  tree = adjMat)
   
-  save(multiLTC, file = "~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao.Rdata")
+  save(multiLTC, file = "~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao_2.Rdata")
 }
 
 for(i in 1:length(clusterList)){

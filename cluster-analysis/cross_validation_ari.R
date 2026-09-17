@@ -62,3 +62,30 @@ for(c in unique(Clusters$Cluster_0)) {
 }
 
 
+
+#### bioFinder ####
+load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_bf.RData")
+
+Clusters <- data.frame(
+  Cluster_0 = bFLTC@Cluster,
+  RID = bFLTC@RID
+)
+n <- length(unique(Clusters$Cluster_0))
+
+
+for (ii in 1:4) {
+  run <- sprintf("exp_km_ab_bf_%d", ii)
+  load(paste("~/R/EDAP-data/LTC_MC/cross_validation/", run, ".Rdata", sep = ""))
+  
+  thisC <- data.frame(Cluster = bFLTC@Cluster, RID = bFLTC@RID)
+  
+  colnames(thisC) <- c(sprintf("Cluster_%d", ii), "RID")
+  Clusters <- Clusters %>% left_join(thisC, by = "RID")
+  Clusters[, sprintf("Cluster_%d", ii)] <- align_clusters(Clusters[, sprintf("Cluster_%d", ii)], Clusters$Cluster_0)
+  
+}
+
+
+
+
+

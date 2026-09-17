@@ -194,7 +194,7 @@ align_clusters <- function(align, to) {
   return(align)
 }
 
-silhouette_plot <- function(Clusters, dmatrix) {
+silhouette_score <- function(Clusters, dmatrix, plot=FALSE) {
   library(cluster)
 
   df <- dmatrix[complete.cases(dmatrix), ] %>% left_join(Clusters, by="RID")
@@ -214,11 +214,12 @@ silhouette_plot <- function(Clusters, dmatrix) {
     FUN = mean
   )
   
-  plot(
-    sil,
-    border = NA,
-    main = "Silhouette plot"
-  )
+  if (plot) {
+    plot(sil, border = NA, main = "Silhouette plot")
+  }
+
+  return(sil)
 }
+
 
 

@@ -12,11 +12,11 @@ library(nlme)
 library(icenReg)
 library(survival)
 
-multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
+multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
 all.vars <- c(grepv("^(RH_|LH_|CC_)", colnames(multi_cohort_df)), "BRAINSTEM")
 
 run <- "exp_km_ab_ao"
-load(paste("~/R/EDAP-data/LTC_MC/", run, ".Rdata", sep = ""))
+load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
 
 adni_dl <- new.env()
 source("~/R/LTC/utils/adni_data_loaders.R", local=adni_dl)
