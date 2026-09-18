@@ -216,10 +216,11 @@ for(ii in 1:1) {
         
         append_c <- length(clusterList)+1
         clusterList[[append_c]] <- c_df
-        next_c = next_c + 1
         
         bic_scores[[append_c]] <- mean(nlmmCandidates[[next_c]]$bic)
         sil_scores[[append_c]] <- silhouette_score(c_df, nlmmBasic$func_params)
+        
+        next_c = next_c + 1
       }
     }
     # All combined if we have done two splits
@@ -236,10 +237,9 @@ for(ii in 1:1) {
       cat("New model fitted to", round(length(nlmmCandidates[[next_c]]$bic)/length(valid_vars)*100), "% of variables \n") 
       
       clusterList[[append_c+1]] <- c_df
+      bic_scores[[append_c+1]] <- mean(nlmmCandidates[[next_c]]$bic)
+      sil_scores[[append_c+1]] <- silhouette_score(c_df, nlmmBasic$func_params)
       next_c = next_c + 1
-      
-      bic_scores[[append_c]] <- mean(nlmmCandidates[[next_c]]$bic)
-      sil_scores[[append_c]] <- silhouette_score(c_df, nlmmBasic$func_params)
     }
     
     # Find the best clustering
