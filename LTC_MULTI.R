@@ -30,7 +30,7 @@ source("~/R/LTC/utils/model_utils.R")
 # Extra utils for clustering and visualization
 source("~/R/LTC/utils/cluster_utils.R")
 
-fit_inital = FALSE # set to FALSE to load previous initial model fitting
+fit_inital = TRUE # set to FALSE to load previous initial model fitting
 # 1. Load dataset
 #multi_cohort_df_ <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
 multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)

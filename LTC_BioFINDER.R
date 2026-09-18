@@ -31,10 +31,10 @@ source("~/R/LTC/utils/cluster_utils.R")
 # Data loading
 source("~/R/LTC/utils/biofinder_data_loaders.R")
 
-fit_initial = FALSE
-do_cross_validation = TRUE
+fit_initial = TRUE
+do_cross_validation = FALSE
 
-mri_df <- get_mri_data(normalize = TRUE) %>% select(-OPTICCHIASM)
+mri_df <- get_mri_data_updated(normalize = TRUE) #%>% select(-OPTICCHIASM)
 
 ab_df <- get_ab_df()
 
@@ -51,7 +51,7 @@ mri_df <- left_join(mri_df, dpm_res, by="sid") %>% filter(!is.na(time_shift)) %>
 
 ids <- unique(mri_df$RID)
 
-all.vars <- c(grepv("^(RH_|LH_)", colnames(mri_df)), "BRAINSTEM") #, "OPTICCHIASM")
+all.vars <- c(grepv("^(RH_|LH_|CC_)", colnames(mri_df)), "BRAINSTEM", "OPTICCHIASM")
 
 # Count observations
 counts <- mri_df %>%

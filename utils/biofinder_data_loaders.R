@@ -177,6 +177,20 @@ get_mri_data <- function(normalize=TRUE) {
   mean(counts$n_obs)
   sd(counts$n_obs)
   
+  mri_df <- read.csv("~/R/EDAP-data/BioFINDER/data_for_Filip/data_MRI_updated.csv") %>%
+    filter(!is.na(mrdate))
+  
+  na_sids <- filter(mri_df, sid == "") %>% 
+    separate(uid, into = c("Study", "sid", "Visit", "data_index"), sep = "_+", remove=FALSE, extra="drop")
+  
+  mri_df <- mri_df %>% filter(sid != "") %>% rbind(na_sids)
+    
+    
+  
+  counts <- mri_df %>% group_by(sid) %>% summarise(n_obs = n())
+  mean(counts$n_obs)
+  sd(counts$n_obs)
+  
   subcortical_vols <- grepv("samseg_vols", colnames(biofinder))
   subcortical_df <- biofinder %>% select(sid, Visit, cognitive_status_baseline_variable, diagnosis_baseline_variable,
                                            all_of(subcortical_vols), icv_mm3) %>%
@@ -247,6 +261,103 @@ get_mri_data <- function(normalize=TRUE) {
     }
   }
   
+  
+  return(mri_df)
+  
+}
+
+
+## MRI vars
+get_mri_data_updated <- function(normalize=TRUE) {
+  biofinder <- read.csv("~/R/EDAP-data/BioFINDER/data_for_Filip/data_filip.csv")
+  
+  dx_df <- biofinder %>% select(sid, Visit, visit_date, 
+                                diagnosis_baseline_variable, cognitive_status_baseline_variable,
+                                cdr_global_clinical) %>%
+    # Impute missing diagnosis
+    mutate(diag.bl = ifelse(
+      cognitive_status_baseline_variable == "TBD",
+      ifelse(cdr_global_clinical >= 1.0, "Dementia", 
+             ifelse(cdr_global_clinical >= 0.5, "MCI", "Normal")),
+      cognitive_status_baseline_variable
+    ),
+    diag.bl = factor(diag.bl, levels = c("Normal", "SCD", "MCI", "Dementia"))
+    ) %>% drop_na(diag.bl) %>% distinct(sid, diag.bl) 
+  
+  biofinder <- mutate(biofinder, visit_date_filled = ifelse(trimws(visit_date) == "", mmse_date, visit_date))
+  bl_dates <- biofinder %>% 
+    distinct(sid, Visit, visit_date_filled) %>% filter(Visit == 0) %>%
+    select(-Visit) %>% rename(baseline_date = visit_date_filled)
+  
+  mri_df <- read.csv("~/R/EDAP-data/BioFINDER/data_for_Filip/data_MRI_updated.csv") %>%
+    filter(!is.na(mrdate))
+  
+  na_sids <- filter(mri_df, sid == "") %>% 
+    separate(uid, into = c("Study", "sid", "Visit", "data_index"), sep = "_+", remove=FALSE, extra="drop")
+  
+  mri_df <- mri_df %>% filter(sid != "") %>% rbind(na_sids) %>% 
+    mutate(mri_date = as.Date(as.character(mrdate), format = "%Y%m%d")) %>%
+    left_join(bl_dates, by="sid") %>%
+    mutate(Years = interval(baseline_date, mri_date) / years(1))
+  
+  mri_df <- left_join(mri_df, dx_df, by='sid') 
+  
+  mri_cols <- setdiff(grepv("(^samseg_vols|^aparc_grayvol|^aseg_vol_CC)", colnames(mri_df)),
+                      c(grepv("(Ventricle|Lat_Vent)", colnames(mri_df)),
+                        grepv("(vessel|CSF|WM)", colnames(mri_df)),
+                        grepv("scan", colnames(mri_df)))
+                      )
+  
+  mri_df <- select(mri_df, uid, Study, sid, Visit, visit_date, baseline_date, mri_date, Years, diag.bl, subject_id, mrdate, 
+                   all_of(mri_cols), icv_mm3)
+  
+  names(mri_df) <- gsub("^aparc_grayvol_", "", names(mri_df))
+  names(mri_df) <- gsub("^samseg_vols_", "", names(mri_df))
+  names(mri_df) <- gsub("^aseg_vol_", "", names(mri_df))
+  
+  convert_name <- function(x) {
+    words <- regmatches(x, gregexpr("[A-Za-z]*", x))[[1]]
+    
+    if (length(words) == 0) {
+      return(toupper(x))
+    }
+    
+    if (words[1] == "Right") {
+      region <- toupper(paste0(words[-1], collapse = ""))
+      paste0("RH_", region)
+    } else if (words[1] == "Left") {
+      region <- toupper(paste0(words[-1], collapse = ""))
+      paste0("LH_", region)
+    } else if (words[1] == "CC") {
+      region <- toupper(paste0(words[-1], collapse = ""))
+      paste0("CC_", region)
+    } else if (words[length(words)] == "R") {
+      region <- toupper(paste0(words[-length(words)], collapse = ""))
+      paste0("RH_", region)
+    } else if (words[length(words)] == "L") {
+      region <- toupper(paste0(words[-length(words)], collapse = ""))
+      paste0("LH_", region)
+    } else {
+      #toupper(paste0(words, collapse = ""))
+      x
+    }
+  }
+  
+  test <- sapply(colnames(mri_df), convert_name)
+  names(mri_df) <- sapply(names(mri_df), convert_name)
+  
+  mri_df <- rename(mri_df, 
+                   OPTICCHIASM = Optic_Chiasm,
+                   BRAINSTEM = Brain_Stem)
+  
+  mri_vars <- c(grepv("^(RH_|LH_|CC_)", colnames(mri_df)), "BRAINSTEM", "OPTICCHIASM")
+  
+  # Normalize by ICV
+  if (normalize) {
+    for (varname in mri_vars) {
+      mri_df[[varname]] <- mri_df[[varname]] / mri_df$icv_mm3
+    }
+  }
   
   return(mri_df)
   
