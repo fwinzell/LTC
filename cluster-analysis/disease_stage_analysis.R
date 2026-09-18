@@ -10,7 +10,7 @@ library(broom)
 
 multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
 
-run <- "exp_km_ab_ao"
+run <- "exp_km_ab_ao_2"
 load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
 
 adni_dl <- new.env()

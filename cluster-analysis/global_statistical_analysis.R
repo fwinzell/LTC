@@ -12,7 +12,7 @@ library(lmerTest)
 
 multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
 
-run <- "exp_km_ab_ao"
+run <- "exp_km_ab_ao_2"
 load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
 
 adni_dl <- new.env()
@@ -130,7 +130,7 @@ results <- lapply(mri_cols, function(var) {
 results <- do.call(rbind, results)
 
 results$p_fdr <- p.adjust(results$p, method = "BH")
-
+results$p_adjusted <- round(results$p_fdr, 4)
 
 results_2 <- lapply(mri_cols, function(var) {
   

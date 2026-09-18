@@ -1,4 +1,3 @@
-library(ADNIMERGE)
 library(ggplot2)
 library(ggpubr)
 library(ggrepel)
@@ -12,43 +11,44 @@ library(nlme)
 library(icenReg)
 library(survival)
 
-multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
-all.vars <- c(grepv("^(RH_|LH_|CC_)", colnames(multi_cohort_df)), "BRAINSTEM")
+# Data loading
+source("~/R/LTC/utils/biofinder_data_loaders.R")
 
-run <- "exp_km_ab_ao_2"
+mri_df <- get_mri_data_updated(normalize = TRUE)  #%>% select(-OPTICCHIASM)
+
+ab_df <- get_ab_df()
+
+ab_pos_ids <- ab_df %>% group_by(sid) %>% mutate(AB_any = any(AB)) %>% ungroup() %>%
+  filter(AB_any) %>% select(sid) %>% unlist()
+
+mri_controls <- mri_df %>% filter(diag.bl == "Normal" & !(sid %in% ab_pos_ids)) %>%
+  rename(RID = sid)
+
+dpm_res <- read.csv("~/R/EDAP-data/BioFINDER/DPM_BioFINDER.csv") %>% distinct(sid, time_shift)
+
+mri_df <- left_join(mri_df, dpm_res, by="sid") %>% filter(!is.na(time_shift)) %>%
+  mutate(Time = Years + time_shift)  %>%
+  rename(RID = sid)
+
+ids <- unique(mri_df$sid)
+
+all.vars <- c(grepv("^(RH_|LH_|CC_)", colnames(mri_df)), "BRAINSTEM", "OPTICCHIASM")
+
+run <- "exp_km_ab_bf"
 load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
 
-adni_dl <- new.env()
-source("~/R/LTC/utils/adni_data_loaders.R", local=adni_dl)
-
-oasis_dl <- new.env()
-source("~/R/LTC/utils/oasis_data_loaders.R", local=oasis_dl)
-
-nacc_dl <- new.env()
-source("~/R/LTC/utils/nacc_data_loaders.R", local=nacc_dl)
-
-mc_dl <- new.env()
-source("~/R/LTC/utils/multi_cohort_loader.R", local=mc_dl)
-
 source("~/R/LTC/utils/analysis_utils.R")
-
-ab_pos_rids <- c(paste0("ADNI_", adni_dl$get_ab_pos_ids()),
-                 paste0("NACC_", nacc_dl$get_ab_pos_ids()),
-                 gsub("OAS", "OASIS_", oasis_dl$get_ab_pos_ids()))
-
-mc_mri <- mc_dl$multi_cohort_mri()
-mri_controls <- mc_mri %>% filter(DX.bl == "CN" & !(RID %in% ab_pos_rids))
 
 # Might need to change this line - accidentially made RID numeric...
 #crids <- levels(multiLTC@betas$RID)[multiLTC@RID]
 Clusters <- data.frame(
-  Cluster = multiLTC@Cluster,
-  RID = multiLTC@RID
+  Cluster = bFLTC@Cluster,
+  RID = bFLTC@RID
 )
 
-Clusters %>% left_join(multi_cohort_df, by = "RID") %>% drop_na(Cluster) -> multi_cohort_df
+mri_df <- Clusters %>% left_join(mri_df, by = "RID") %>% drop_na(Cluster) 
 
-multi_cohort_df %>% distinct(RID, Cluster, Cohort) %>% select(Cluster, Cohort) %>% table()
+mri_df %>% distinct(RID, Cluster) %>% select(Cluster) %>% table()
 
 ##### make plots ######
 mean_fn <- list(
@@ -58,16 +58,16 @@ mean_fn <- list(
 
 mean_and_sd <- function(vars) {
   vars <- unname(vars)
-  mean_df <- mri_controls %>% select(RID, Months, all_of(vars)) %>% 
+  mean_df <- mri_controls %>% select(RID, Years, all_of(vars)) %>% 
     mutate(v = rowSums(across(all_of(vars)))) %>%
-    arrange(Months) %>% distinct(RID, .keep_all = TRUE) %>%
+    arrange(Years) %>% distinct(RID, .keep_all = TRUE) %>%
     summarise(across(v, mean_fn)) 
   return(mean_df)
 }
 
 # Hippocampus
 vars <- c("LH_HIPPOCAMPUS", "RH_HIPPOCAMPUS") %>% setNames(c("Left", "Right"))
-hippo <- multi_cohort_df %>% select(RID, DX.bl, Time, Cluster, all_of(vars)) %>% mutate(v = Left + Right)
+hippo <- mri_df %>% select(RID, diag.bl, Time, Cluster, all_of(vars)) %>% mutate(v = Left + Right) 
 
 mean_df <- mean_and_sd(vars)
 
@@ -77,7 +77,7 @@ plot(hippo_plot$plot)
 
 # Entorhinal
 vars <- c("LH_ENTORHINAL", "RH_ENTORHINAL") %>% setNames(c("Left", "Right"))
-entor <- multi_cohort_df %>% select(RID, DX.bl, Time, Cluster, all_of(vars)) %>% mutate(v = Left + Right)
+entor <- mri_df %>% select(RID, diag.bl, Time, Cluster, all_of(vars)) %>% mutate(v = Left + Right)
 
 mean_df <- mean_and_sd(vars)
 
@@ -85,17 +85,17 @@ ent_plot <- survival_analysis(entor, mu=mean_df$v_mu, sigma=mean_df$v_sigma, tit
 plot(ent_plot$plot)
 
 # Accumbens Area
-vars <- grepv("ACCUMBENS", colnames(multi_cohort_df)) %>% setNames(c("Left", "Right"))
-accum <- multi_cohort_df %>% select(RID, DX.bl, Time, Cluster, all_of(vars)) %>% mutate(v = Left + Right)
+vars <- grepv("ACCUMBENS", colnames(mri_df)) %>% setNames(c("Left", "Right"))
+accum <- mri_df %>% select(RID, diag.bl, Time, Cluster, all_of(vars)) %>% mutate(v = Left + Right)
 
 mean_df <- mean_and_sd(vars)
 
 accum_plot <- survival_analysis(accum, mu=mean_df$v_mu, sigma=mean_df$v_sigma, title_name="Accumbens Area", z_threshold = -1.28)
 
 # Left-temporal
-vars <- grepv("LH.*TEMPORAL", colnames(multi_cohort_df))
+vars <- grepv("LH.*TEMPORAL", colnames(mri_df))
 
-lat_temp <- multi_cohort_df %>% select(RID, DX.bl, Time, Cluster, all_of(vars)) %>% 
+lat_temp <- mri_df %>% select(RID, diag.bl, Time, Cluster, all_of(vars)) %>% 
   mutate(v = rowSums(across(all_of(vars))))
 
 mean_df <- mean_and_sd(vars)
@@ -104,8 +104,8 @@ lt_p <- survival_analysis(lat_temp, mu=mean_df$v_mu, sigma=mean_df$v_sigma, titl
 
 
 # Parietal
-vars <- grepv("*PARIETAL", colnames(multi_cohort_df))
-parietal <- multi_cohort_df %>% select(RID, DX.bl, Time, Cluster, all_of(vars)) %>%
+vars <- grepv("*PARIETAL", colnames(mri_df))
+parietal <- mri_df %>% select(RID, diag.bl, Time, Cluster, all_of(vars)) %>%
   mutate(v = rowSums(across(all_of(vars)))) %>% drop_na(v)
 
 mean_df <- mean_and_sd(vars)
@@ -116,7 +116,7 @@ par_p <- survival_analysis(parietal, mu=mean_df$v_mu, sigma=mean_df$v_sigma, "Pa
 # Fusiform
 vars <- c("LH_FUSIFORM", "RH_FUSIFORM") %>% setNames(c("Left", "Right"))
 
-fusi <- multi_cohort_df %>% select(RID, DX.bl, Time, Cluster, all_of(vars)) %>%
+fusi <- mri_df %>% select(RID, diag.bl, Time, Cluster, all_of(vars)) %>%
   mutate(v = Left + Right)
 mean_df <- mean_and_sd(vars)
 
@@ -126,7 +126,7 @@ fusi_p <- survival_analysis(fusi, mu=mean_df$v_mu, sigma=mean_df$v_sigma, "Fusif
 # Insula
 vars <- c("LH_INSULA", "RH_INSULA") %>% setNames(c("Left", "Right"))
 
-insul <- multi_cohort_df %>% select(RID, DX.bl, Time, Cluster, all_of(vars)) %>%
+insul <- mri_df %>% select(RID, diag.bl, Time, Cluster, all_of(vars)) %>%
   mutate(v = Left + Right) %>% drop_na(v)
 mean_df <- mean_and_sd(vars)
 
@@ -146,7 +146,7 @@ plot <- ggarrange(
 )
 
 plot(plot)
-ggsave("~/R/EDAP-data/plots/LTC_MC/mri_surv_plots_ab.png", plot, width = 10, height = 6, dpi =500)
+ggsave("~/R/EDAP-data/plots/LTC_MC/bf_mri_surv_plots_ab.png", plot, width = 10, height = 6, dpi =500)
 
 #### make table ####
 

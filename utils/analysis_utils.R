@@ -38,7 +38,7 @@ survival_analysis <- function(df, title_name, mu, sigma, z_threshold = -1.6449) 
   df$surv_time <- df$Time - min(df$Time)
   
   table(df[c("Cluster", "Event")])
-  df %>% filter(Cluster == "F") %>% group_by(RID) %>% mutate(last_follow_up = max(Time)) %>%
+  df %>% filter(Cluster == "F") %>% group_by(RID) %>% mutate(last_follow_up = max(Time, na.rm=TRUE)) %>%
     ungroup() %>% distinct(RID, last_follow_up) %>% select(last_follow_up) %>% hist()
   
   surv_data <- data.frame()
