@@ -345,3 +345,48 @@ plot_dendrogram(multiLTC, save=FALSE)
 
 cluster_df <- mutate(cluster_df, Cohort = gsub("_.*", "", RID))
 
+
+sil_df <- imap_dfr(sil_scores, ~{
+  as.data.frame(.x) %>%
+    mutate(
+      clustering = .y
+    )
+})
+
+sil_df <- sil_df %>%
+  mutate(
+    k = as.numeric(sub("k", "", clustering))
+  ) %>% filter(clustering != 1)
+
+ggplot(sil_df, aes(x = factor(k), y = sil_width)) +
+  geom_violin(fill = "grey85", color = "grey40") +
+  geom_boxplot(width = 0.15, outlier.shape = NA) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Number of clusters",
+    y = "Silhouette width"
+  ) +
+  theme_classic()
+
+
+cluster_summary <- sil_df %>%
+  group_by(k, cluster) %>%
+  summarise(
+    mean_silhouette = mean(sil_width),
+    .groups = "drop"
+  )
+
+ggplot(
+  cluster_summary,
+  aes(x = factor(k), y = mean_silhouette, group = factor(cluster))
+) +
+  geom_hline(yintercept = 0.0) +
+  geom_line() +
+  geom_point(size = 2) +
+  labs(
+    x = "Number of clusters",
+    y = "Mean silhouette width",
+    group = "Cluster"
+  ) +
+  theme_classic()
+
