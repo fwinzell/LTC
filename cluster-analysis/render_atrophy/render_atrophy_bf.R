@@ -10,55 +10,62 @@ library(broom)
 library(lme4)
 library(lmerTest)
 
-multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
+source("~/R/LTC/utils/biofinder_data_loaders.R")
 
-run <- "exp_km_ab_ao"
-load(paste("~/R/EDAP-data/LTC_MC/", run, ".Rdata", sep = ""))
-
-adni_dl <- new.env()
-source("~/R/LTC/utils/adni_data_loaders.R", local=adni_dl)
-
-oasis_dl <- new.env()
-source("~/R/LTC/utils/oasis_data_loaders.R", local=oasis_dl)
-
-mc_dl <- new.env()
-source("~/R/LTC/utils/multi_cohort_loader.R", local=mc_dl)
+run <- "exp_km_ab_bf"
+load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
 
 source("~/R/LTC/utils/analysis_utils.R")
 
-ab_pos_rids <- c(paste0("ADNI_", adni_dl$get_ab_pos_ids()),
-                 gsub("OAS", "OASIS_", oasis_dl$get_ab_pos_ids()))
+mri_df <- get_mri_data_updated(normalize = TRUE) #%>% select(-OPTICCHIASM)
 
-mc_mri <- mc_dl$multi_cohort_mri()
-mri_controls <- mc_mri %>% filter(DX.bl == "CN" & !(RID %in% ab_pos_rids))
+ab_df <- get_ab_df()
+
+ab_pos_ids <- ab_df %>% group_by(sid) %>% mutate(AB_any = any(AB)) %>% ungroup() %>%
+  filter(AB_any) %>% select(sid) %>% unlist()
+
+mri_controls <- mri_df %>% filter(diag.bl == "Normal" & !(sid %in% ab_pos_ids)) %>%
+  rename(RID = sid)
+
+dpm_res <- read.csv("~/R/EDAP-data/BioFINDER/DPM_BioFINDER.csv") %>% distinct(sid, time_shift)
+
+mri_df <- left_join(mri_df, dpm_res, by="sid") %>% filter(!is.na(time_shift)) %>%
+  mutate(Time = Years + time_shift) %>%
+  rename(RID = sid)
+
+ids <- unique(mri_df$RID)
+
+all.vars <- c(grepv("^(RH_|LH_|CC_)", colnames(mri_df)), "BRAINSTEM", "OPTICCHIASM")
 
 Clusters <- data.frame(
-  Cluster = multiLTC@Cluster,
-  RID = multiLTC@RID
+  Cluster = bFLTC@Cluster,
+  RID = bFLTC@RID
 )
 
-Clusters %>% left_join(multi_cohort_df, by = "RID") %>% drop_na(Cluster) -> multi_cohort_df
+mri_df <- Clusters %>% left_join(mri_df, by = "RID") %>% drop_na(Cluster) 
+
+
 
 tran <- lapply(unique(Clusters$Cluster), function(c) {
-  multi_cohort_df %>% filter(Cluster == c) %>% select(Time) %>% unlist() %>% quantile(c(0.05, 0.95))
+  mri_df %>% filter(Cluster == c) %>% select(Time) %>% unlist() %>% quantile(c(0.05, 0.95))
 })
 
 tran
 
-multi_cohort_df$Stage <- cut(multi_cohort_df$Time, 
-                      breaks = c(-Inf, 0, 5, 10, 12.5, 15, Inf),
+mri_df$Stage <- cut(mri_df$Time, 
+                      breaks = c(-Inf, 0, 5, 10, 12.5, Inf),
                       include.lowest = TRUE)
-mri_cols <- c(grepv("^(RH_|LH_|CC_)", colnames(multi_cohort_df)), "BRAINSTEM")
+mri_cols <- c(grepv("^(RH_|LH_|CC_)", colnames(mri_df)), "BRAINSTEM")
 
 all_means <- data.frame()
 
 for (varname in mri_cols) {
-  mu <- mri_controls %>% select(RID, Months, all_of(varname)) %>% na.omit() %>%
-    arrange(Months) %>% distinct(RID, .keep_all = TRUE) %>%
+  mu <- mri_controls %>% select(RID, Visit, all_of(varname)) %>% na.omit() %>%
+    arrange(Visit) %>% distinct(RID, .keep_all = TRUE) %>%
     summarise(Mean = mean(.data[[varname]], na.rm=TRUE),
               SD = sd(.data[[varname]], na.rm=TRUE)) 
   
-  df <- multi_cohort_df %>% select(RID, Time, DX.bl, Cluster, Stage, all_of(varname)) %>%
+  df <- mri_df %>% select(RID, Time, diag.bl, Cluster, Stage, all_of(varname)) %>%
     drop_na(Cluster) %>% mutate(z = (.data[[varname]]-mu$Mean)/mu$SD) %>%
     group_by(RID, Stage) %>% 
     slice_min(abs(Time - median(Time)), n = 1, with_ties=FALSE) %>%
@@ -85,7 +92,7 @@ distinct(all_means, Cluster, n)
 dir.workbench.software = "/Users/filipwinzell/Workbench/software/workbench"#paste0(dir.root.olink, "AHBA_correlations/WorkBench_projections/software/workbench/")
 
 # directory in which you want all surface renderings to be stored
-dir.workbench = paste0('/Users/filipwinzell/Workbench/Surface_renderings/LTC_MC/') 
+dir.workbench = paste0('/Users/filipwinzell/Workbench/Surface_renderings/LTC_biofinder/') 
 
 # directory in which the atlases are stored
 dir.atlas = '/Users/filipwinzell/Workbench/atlas'#paste0(dir.root.olink, "AHBA_correlations/WorkBench_projections/atlas")

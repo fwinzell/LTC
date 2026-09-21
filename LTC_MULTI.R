@@ -31,6 +31,10 @@ source("~/R/LTC/utils/model_utils.R")
 source("~/R/LTC/utils/cluster_utils.R")
 
 fit_inital = TRUE # set to FALSE to load previous initial model fitting
+do_downsample_exp = TRUE # set to TRUE to run the downsample experiment
+
+save_dir = "~/R/EDAP-data/LTC_MC/downsampled/" # directory to save clustering results, if not changed will overwrite
+
 # 1. Load dataset
 #multi_cohort_df_ <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
 multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
@@ -47,6 +51,20 @@ counts <- multi_cohort_df %>%
 
 mean(counts$n_obs)
 sd(counts$n_obs)
+
+# Downsample experiment
+if (do_downsample_exp) {
+  multi_cohort_df <- downsample_visits(
+    multi_cohort_df,
+    target_mean = 2.3,
+    id = "RID",
+    time = "Years",
+    min_visits = 2,
+    seed = 123
+  )
+  
+  fit_inital = TRUE # force this to be true
+}
 
 # 3. Fit inital NLMMs
 numCores <- detectCores()
@@ -93,9 +111,9 @@ if (fit_inital) {
     func_params = func_df
   )
   
-  save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO_fp.Rdata")
+  save(nlmmBasic, file = paste0(save_dir, "nlmmBasic_AO_fp.Rdata"))
 } else {
-  load("~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO_fp.Rdata")
+  load(paste0(save_dir, "nlmmBasic_AO_fp.Rdata"))
 }
 
 cat("Inital models fitted to", round((dim(nlmmBasic$betas)[2]-1)/length(all.vars)*100), "% of variables") 
@@ -235,7 +253,7 @@ for(ii in 1:1) {
   
     
     nlmmBest <- nlmmCandidates[[best_idx]]
-    save(nlmmBest, file = "~/R/EDAP-data/LTC_MC/new/nlmmBest_AO.Rdata")
+    save(nlmmBest, file = paste0(save_dir, "nlmmBest_AO.Rdata"))
     
     # Remove this pair
     clusterPairs <- clusterPairs[-1]
@@ -308,7 +326,7 @@ for(ii in 1:1) {
                  ll = nlmmBest$logLikes,
                  tree = adjMat)
   
-  save(multiLTC, file = "~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao_2.Rdata")
+  save(multiLTC, file = paste0(save_dir, "exp_km_ab_ao.Rdata"))
 }
 
 for(i in 1:length(clusterList)){
@@ -322,7 +340,7 @@ for(i in 1:length(treeIdx)){
 treeIdx
 
 
-plot_dendrogram(multiLTC, save=TRUE)
+plot_dendrogram(multiLTC, save=FALSE)
 
 
 cluster_df <- mutate(cluster_df, Cohort = gsub("_.*", "", RID))

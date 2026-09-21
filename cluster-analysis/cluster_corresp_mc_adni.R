@@ -19,11 +19,9 @@ Clusters_oasis <- data.frame(
   RID = oasisLTC@RID
 )
 
+load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao_2.Rdata")
 
-run <- "exp_km_ab_ao"
-load(paste("~/R/EDAP-data/LTC_MC/", run, ".Rdata", sep = ""))
-
-Clusters <- data.frame(
+Clusters_mc <- data.frame(
   Cluster_mc = multiLTC@Cluster,
   RID = multiLTC@RID
 ) %>% mutate(Cohort = gsub("_.*", "", RID))
@@ -31,12 +29,12 @@ Clusters <- data.frame(
 
 # ADNI comparison
 
-comb <- Clusters_new %>% filter(Cohort == 'ADNI') %>% mutate(RID = as.numeric(gsub("ADNI_", "", RID))) %>%
+comb <- Clusters_mc %>% filter(Cohort == 'ADNI') %>% mutate(RID = as.numeric(gsub("ADNI_", "", RID))) %>%
   left_join(Clusters_adni, by='RID')
 
-table(comb$Cluster_new, comb$Cluster_adni)
+table(comb$Cluster_mc, comb$Cluster_adni)
 
-cm_df <- as.data.frame(table(comb$Cluster_new, comb$Cluster_adni)) %>%
+cm_df <- as.data.frame(table(comb$Cluster_mc, comb$Cluster_adni)) %>%
   rename(`ADNI+OASIS` = Var1,
          ADNI = Var2)
 
@@ -50,10 +48,10 @@ ggplot(cm_df, aes(x = ADNI, y = `ADNI+OASIS`, fill = Freq)) +
 
 # OASIS comparison
 
-comb <- Clusters_new %>% filter(Cohort == 'OASIS') %>% mutate(RID = as.numeric(gsub("OASIS_", "", RID))) %>%
+comb <- Clusters_mc %>% filter(Cohort == 'OASIS') %>% mutate(RID = as.numeric(gsub("OASIS_", "", RID))) %>%
   left_join(Clusters_oasis, by='RID')
 
-table(comb$Cluster_new, comb$Cluster_oasis)
+table(comb$Cluster_mc, comb$Cluster_oasis)
 
 
 ### New ADNI ####
@@ -65,7 +63,7 @@ Clusters_new <- data.frame(
   RID = multiLTC@RID
 ) %>% mutate(Cohort = gsub("_.*", "", RID))
 
-load(paste("~/R/EDAP-data/LTC_MC/new/fail_2/", run, ".Rdata", sep = ""))
+load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao_2.Rdata")
 
 Clusters_new_2 <- data.frame(
   Cluster_fail = multiLTC@Cluster,

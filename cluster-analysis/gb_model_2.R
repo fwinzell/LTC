@@ -14,11 +14,10 @@ library(xgboost)
 library(caret)
 library(pROC)
 
-dataset = "oasis"
-
-source(paste0("~/R/LTC/utils/", dataset, "_data_loaders.R"))
+dataset = "multi"
 
 if (dataset == "adni") {
+  source(paste0("~/R/LTC/utils/", dataset, "_data_loaders.R"))
   run <- "exp_km_ab"
   load(paste("~/R/EDAP-data/LTC4/", run, ".Rdata", sep = ""))
   
@@ -37,6 +36,7 @@ if (dataset == "adni") {
   
   mri_cols <- adniLTC@varNames
 } else if(dataset == "oasis") {
+  source(paste0("~/R/LTC/utils/", dataset, "_data_loaders.R"))
   run <- "oasis_exp_km_ab_2"
   load(paste("~/R/EDAP-data/LTC4/", run, ".Rdata", sep = ""))
   
@@ -56,6 +56,24 @@ if (dataset == "adni") {
   mri_cols <- oasisLTC@varNames
   #mri_cols <- c(grepv("^[lr]h_[a-z]+_volume$", colnames(mri_data)), 
   #              grepv("^(Left|Right)\\.[a-zA-Z._]+_volume$", colnames(mri_data)))
+} else if(dataset == "multi") {
+  source("~/R/LTC/utils/multi_cohort_loader.R")
+  run <- "exp_km_ab_ao_2"
+  load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
+  
+  multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
+  # Filter out NACC
+  mri_data <- filter_out(multi_cohort_df, Cohort == "NACC")
+  
+  Clusters <- data.frame(
+    Cluster = multiLTC@Cluster,
+    RID = multiLTC@RID
+  )
+  
+  mri_data <- Clusters %>% left_join(mri_data, by = "RID") %>% drop_na(Cluster) %>%
+    select(RID, Cluster, Time, all_of(multiLTC@varNames))
+
+  mri_cols <- multiLTC@varNames
 }
 
 
@@ -210,6 +228,7 @@ print(paste("Average Multi-label AUC", mauc, sep =": "))
 print(paste("SD AUC", sdauc, sep =": "))
 
 # For exp_km: AUC=0.7485 (0.0961)
+# For multi cohort: AUC=0.7765 (0.1074)
 
 acc = acc / length(folds)
 print(paste("Average Accuracy", acc, sep =": "))
@@ -262,8 +281,8 @@ varp <- summary_vars |> ggplot(aes(x = Lobe, y = Importance, fill = Cluster)) +
 
 plot(varp)
 
-ggsave(conf_p, filename = "~/R/EDAP-data/plots/LTC4/ltc_xgb_confmat.png", width = 5, height = 5, dpi = 300)
-ggsave(rocp, filename = "~/R/EDAP-data/plots/LTC4/oasis_ltc_xgb_roc.png", width = 5, height = 4, dpi = 300)
+ggsave(conf_p, filename = "~/R/EDAP-data/plots/LTC_MC/ltc_xgb_confmat.png", width = 5, height = 5, dpi = 300)
+ggsave(rocp, filename = "~/R/EDAP-data/plots/LTC_MC/ltc_xgb_roc.png", width = 5, height = 4, dpi = 300)
 #ggsave(varp, filename = "~/R/EDAP-plots/rf_varimp.png", width = 7, height = 10, dpi = 300)
 
 

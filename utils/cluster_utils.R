@@ -1,6 +1,56 @@
 library(dplyr)
 library(ggplot2)
 
+downsample_visits <- function(df, target_mean, id = "RID", time = "Years",
+                              min_visits = 1, seed = NULL) {
+  
+  # Downsample cohort by removing visits iteratively, starting with the last
+  # visit for eligble participants until the target mean is reached
+  # Example usage:
+  # mri_downsampled <- downsample_visits(
+  #   multi_cohort_df,
+  #   target_mean = 2.3,
+  #   id = "RID",
+  #   time = "Years",
+  #   min_visits = 2,
+  #   seed = 123
+  # )
+
+  
+  if (!is.null(seed)) set.seed(seed)
+  
+  out <- df
+  
+  n_subjects <- length(unique(out[[id]]))
+  target_n_visits <- round(target_mean * n_subjects)
+  n_remove <- nrow(out) - target_n_visits
+  
+  if (n_remove <= 0)
+    return(out)
+  
+  for (i in seq_len(n_remove)) {
+    
+    n_visits <- table(out[[id]])
+    eligible <- names(n_visits[n_visits > min_visits])
+    
+    if (length(eligible) == 0) {
+      warning("Minimum number of visits reached.")
+      break
+    }
+    
+    selected_id <- sample(eligible, 1)
+    idx <- which(as.character(out[[id]]) == selected_id)
+    
+    last_visit <- idx[which.max(out[[time]][idx])]
+    out <- out[-last_visit, ]
+  }
+  
+  out
+}
+
+
+
+
 evaluate_bics <- function(nlmmCandidates, all.vars) {
   all.bics <- sapply(nlmmCandidates, function(x) {
     idx <- which(all.vars %in% names(x$betas))
