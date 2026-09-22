@@ -120,7 +120,7 @@ run_ltc <- function(seed, max_clusters = 8, mcr = 0.5, savename = "exp_km_ab_ao.
     beta_df <- purrr::reduce(betaList, full_join, by = "RID")
     
     func_params <- lapply(results, `[[`, "func_params")
-    func_params <- map2(func_params, all.vars, function(df, nm) {
+    func_params <- map2(func_params, intersect(all.vars, colnames(beta_df)), function(df, nm) {
       df %>% rename_with(~ paste0(nm, ".", .x), c(slope, intercept))
     })
     func_df <- purrr::reduce(func_params, full_join, by = "RID")
