@@ -87,5 +87,11 @@ for (ii in 1:4) {
 
 
 
+#### Downsampled experiment ####
+
+load("~/R/EDAP-data/LTC_MC/downsampled/exp_km_ab_ao.Rdata")
+table(multiLTC@Cluster)
+
+
 
 

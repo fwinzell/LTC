@@ -3,7 +3,7 @@ library(dplyr)
 library(lubridate)
 library(stringr)
 
-source("~/R/LTC/utils/ucsf_data_loaders.R")
+source("~/R/LTC/utils/adni_data_loaders.R")
 
 run <- "exp_km_ab"
 load(paste("~/R/EDAP-data/LTC4/", run, ".Rdata", sep = ""))
