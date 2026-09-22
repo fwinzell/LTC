@@ -72,11 +72,12 @@ if (do_downsample_exp) {
   load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao_2.RData")
   
   Clusters <- data.frame(
-    Cluster = multiLTC@Cluster,
+    Cluster_0 = multiLTC@Cluster,
     RID = multiLTC@RID
   )
   
   multi_cohort_df <- left_join(multi_cohort_df, Clusters, by = "RID")
+  fit_inital = TRUE # force this to be true
 } else {
   save_dir = "~/R/EDAP-data/LTC_MC/newer/" # directory to save clustering results, if not changed will overwrite
 }
@@ -364,9 +365,9 @@ run_ltc <- function(seed, max_clusters = 8, mcr = 0.5, savename = "exp_km_ab_ao.
 
 if (do_cluster_perm_exp) {
   multi_cohort_df_all <- multi_cohort_df
-  for (CC in unique(Clusters$Cluster)) {
+  for (CC in unique(Clusters$Cluster_0)) {
     print(paste0("Running without cluster: ", CC))
-    multi_cohort_df <- filter(multi_cohort_df_all, Cluster != CC)
+    multi_cohort_df <- filter(multi_cohort_df_all, Cluster_0 != CC)
     run_ltc(seed = 1, savename = paste0("exp_km_ab_ao_", CC, ".Rdata"))
   }
 } else {
