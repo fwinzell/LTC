@@ -69,7 +69,7 @@ if (do_downsample_exp) {
   
   save_dir = "~/R/EDAP-data/LTC_MC/permuted/" # directory to save clustering results, if not changed will overwrite
   # Load previous clustering
-  load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao_2.RData")
+  load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao_2.Rdata")
   
   Clusters <- data.frame(
     Cluster_0 = multiLTC@Cluster,
