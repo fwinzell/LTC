@@ -66,7 +66,7 @@ library(lmerTest)
 library(emmeans)
 library(splines)
 
-var = mri_cols[1]
+var = mri_cols[2]
 
 # Statistical test:
 # H0: no cluster effect after accounting for disease stage and global severity
@@ -92,7 +92,12 @@ m1 <- lmer(
   REML = FALSE
 )
 
-p_val = anova(m0, m1)$`Pr(>Chisq)`[2]
+cmp <- anova(m0, m1)
+p_val = cmp$`Pr(>Chisq)`[2]
+
+emm <- emmeans(m1, ~ Cluster)
+cl_pairs <- pairs(emm, adjust = "tukey")
+cl_pairs <- data.frame(cl_pairs) %>% filter(p.value < 0.5) %>% select(contrast) %>% unlist()
 
 results <- lapply(mri_cols, function(var) {
   
@@ -132,7 +137,7 @@ results <- do.call(rbind, results)
 results$p_fdr <- p.adjust(results$p, method = "BH")
 results$p_adjusted <- round(results$p_fdr, 4)
 
-results_2 <- lapply(mri_cols, function(var) {
+pairwise <- lapply(mri_cols, function(var) {
   
   mc_df_z$global_z <- rowMeans(
     mc_df_z[, setdiff(mri_cols, var)],
@@ -140,6 +145,32 @@ results_2 <- lapply(mri_cols, function(var) {
   )
   
   preds_1 <- "ns(Time, df=3) + global_z + Cluster + (1 | RID)"
+  
+  m1 <- lmer(
+    reformulate(preds_1, response = var),
+    data = mc_df_z,
+    REML = FALSE
+  )
+  
+  emm <- emmeans(m1, ~ Cluster)
+  cl_pairs <- pairs(emm, adjust = "tukey")
+  
+  data.frame(cl_pairs) %>% select(contrast, estimate, p.value) %>% 
+    mutate(region = var)
+})
+
+pairwise <- do.call(rbind, pairwise)
+significant <- filter(pairwise, p.value<0.05)
+table(significant$contrast)
+
+results_2 <- lapply(mri_cols, function(var) {
+  
+  mc_df_z$global_z <- rowMeans(
+    mc_df_z[, setdiff(mri_cols, var)],
+    na.rm = TRUE
+  )
+  
+  preds_1 <- "ns(Time, df=3) + Cluster + global_z + (1 | RID)"
   preds_2 <- "ns(Time, df=3) * Cluster + global_z + (1 | RID)"
   
   m1 <- lmer(

@@ -229,7 +229,7 @@ align_clusters <- function(align, to) {
   
   c <- ncol(tab)
   n <- nrow(tab)
-  M <- matrix(0, nrow=n, ncol=n)
+  M <- matrix(0, nrow=n, ncol=c)
   M[1:n, 1:c] <- tab
   
   assign <- clue::solve_LSAP(M, maximum = TRUE)
@@ -241,6 +241,59 @@ align_clusters <- function(align, to) {
   }
   levels(align) <- newlvls
   align <- factor(align, levels = LETTERS[1:c])
+  return(align)
+}
+
+align_clusters_new <- function(align, to) {
+  
+  # Number of clusters to retain from align
+  n_to <- nlevels(to)
+  n_align <- nlevels(align)
+  
+  if (n_to > n_align) {
+    diff = n_to - n_align
+    levels(align) <- c(levels(align), LETTERS[(n_align+1):(n_align+diff)])
+  }
+  
+  # Cluster sizes in align
+  align_sizes <- table(align)
+  
+  # Select the n_to largest clusters
+  main_clusters <- names(sort(align_sizes, decreasing = TRUE))[1:n_to]
+  
+  # Separate main and extra clusters
+  extra_clusters <- setdiff(levels(align), main_clusters)
+  
+  # Full contingency table -- do NOT subset the observations
+  tab <- table(to, align)
+  
+  # Keep only columns for the selected align clusters
+  tab_main <- tab[, main_clusters, drop = FALSE]
+  
+  assignment <- clue::solve_LSAP(
+    tab_main,
+    maximum = TRUE
+  )
+  
+  newlvls <- c()
+  for(idx in 1:length(main_clusters)) {
+    map <- which(assignment == idx)
+    newlvls <- c(newlvls, levels(to)[map])
+  }
+  
+  if (length(extra_clusters) > 0) {
+    # Give extra clusters new labels
+    new_labels <- LETTERS[(n_to + 1):(n_to + length(extra_clusters))]
+  } else {
+    new_labels <- c()
+  }
+  
+  newlvls <- c(newlvls, new_labels)
+  
+  mapping <- order(c(main_clusters, extra_clusters))
+  
+  levels(align) <- newlvls[mapping]
+  align <- factor(align, levels = LETTERS[1:length(newlvls)])
   return(align)
 }
 

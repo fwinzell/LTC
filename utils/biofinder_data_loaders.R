@@ -145,6 +145,47 @@ get_biofinder_dpm <- function(path = "~/R/EDAP-data/BioFINDER/data_for_Filip/dat
 }
 
 
+get_diagnoses <- function(path = "~/R/EDAP-data/BioFINDER/data_for_Filip/data_filip.csv") {
+  biofinder <- read.csv(path)
+  
+  dx_df <- biofinder %>% select(sid, Visit, visit_date, 
+                                 mmse_date, mmse_score, 
+                                 diagnosis_baseline_variable, cognitive_status_baseline_variable,
+                                converted_dementia_date_baseline_variable, converted_dementia_dich_baseline_variable,                    
+                                last_visit_date_dementia_nonconverted_baseline_variable, converted_MCI_date_baseline_variable,                       
+                                converted_MCI_dich_baseline_variable, last_visit_date_MCI_nonconverted_baseline_variable,
+                                 cdr_global_clinical, cdr_sum_of_boxes_clinical) %>%
+    # Impute missing diagnosis
+    mutate(diag.bl = ifelse(
+      cognitive_status_baseline_variable == "TBD",
+      ifelse(cdr_global_clinical >= 1.0, "Dementia", 
+             ifelse(cdr_global_clinical >= 0.5, "MCI", "Normal")),
+      cognitive_status_baseline_variable
+    ),
+    diag.bl = factor(diag.bl, levels = c("Normal", "SCD", "MCI", "Dementia"))
+    ) %>% drop_na(diag.bl)
+  
+  return(dx_df)
+}
+
+get_demographics <- function(path = "~/R/EDAP-data/BioFINDER/data_for_Filip/data_filip.csv") {
+  biofinder <- read.csv(path)
+  
+  age_bl <- biofinder %>% select(sid, Visit, age) %>% #mutate(age_bl = ifelse(Visit == 0, age, NA)) %>% 
+    group_by(sid) %>% filter_out(all(is.na(age))) %>% 
+    mutate(age_bl = min(age, na.rm=TRUE)+min(Visit, na.rm=TRUE)) %>% ungroup() %>% 
+    distinct(sid, age_bl)
+  demog <- left_join(biofinder, age_bl, by="sid") %>% drop_na(age_bl) %>%
+    distinct(sid, age_bl, gender_baseline_variable, 
+                                education_level_years_baseline_variable, apoe_genotype_baseline_variable,
+                                study_cohort_baseline_variable) %>%
+    mutate(APOE4 = as.numeric(str_count(as.character(apoe_genotype_baseline_variable), "4")))
+  
+  #demog %>% distinct(sid, APOE4, apoe_genotype_baseline_variable) %>% select(-sid) %>% table()
+  
+  return(demog)
+}
+
 ## MRI vars
 get_mri_data <- function(normalize=TRUE) {
   biofinder <- read.csv("~/R/EDAP-data/BioFINDER/data_for_Filip/data_filip.csv")
@@ -363,88 +404,19 @@ get_mri_data_updated <- function(normalize=TRUE) {
   
 }
 
-test_things <- function() {
-  biofinder <- read.csv("~/R/EDAP-data/BioFINDER/data_for_Filip/data_filip.csv")
+
+get_tau_data <- function(path = "~/R/EDAP-data/BioFINDER/data_for_Filip/data_filip.csv") {
+  biofinder <- read.csv(path)
   
-  cortical_vols <- grepv("aparc_ct", colnames(biofinder))
-  subcortical_vols <- grepv("samseg_vols", colnames(biofinder))
-  
-  avg_scn <- biofinder$aparc_ct_avg_scan
-  table(avg_scn, useNA= "ifany")
-  skull <- biofinder$samseg_vols_Skull
-  
-  
-  mmse_cols <- grepv("mmse", colnames(biofinder))
-  adas_cols <- grepv("adas", colnames(biofinder))
-  cdr_cols <- grepv("cdr", colnames(biofinder))
-  
-  date_cols <- grepv("date", colnames(biofinder))
-  
-  
-  
-  ab_pet_cols <- grepv("fnc", colnames(biofinder))
-  
-  ab_pet <- select(biofinder, subject_id, all_of(ab_pet_cols), ab_status, cognitive_status_baseline_variable) %>%
-    filter(has_proc_csv_fncbw_sr_mr_fs == 1) %>%
-    mutate(ab_status = as.factor(ab_status), 
-           diag = as.factor(cognitive_status_baseline_variable))
-  
-  table(ab_pet$ab_status)
-  
-  library(ggplot2) 
-  
-  ggplot(ab_pet, aes(y=fnc_ber_com_composite, fill = diag, group = diag)) +
-    geom_boxplot() +
-    geom_hline(yintercept = 1.03, linetype = "dashed")
-  
-  
-  
-  # Amyloid-Beta stuff
-  ab_df <- select(biofinder, sid, Visit, diagnosis_baseline_variable, ab_status, ab_binary_PET, ab_binary_CSF, Dx_ab, 
-                  fnc_ber_com_composite, 
-                  CSF_Ab42_Ab40_ratio_imputed_Elecsys_2020_2022
-  ) %>%
-    filter(!if_all(c(ab_status, ab_binary_PET, ab_binary_CSF, fnc_ber_com_composite, CSF_Ab42_Ab40_ratio_imputed_Elecsys_2020_2022), is.na)) %>%
-    mutate(AB_CSF = CSF_Ab42_Ab40_ratio_imputed_Elecsys_2020_2022 < 0.080,
-           AB_PET = fnc_ber_com_composite > 1.03) 
-  
-  
-  table(ab_df[c("ab_binary_PET", "AB_PET")])
-  
-  wat <- filter(ab_df, ab_binary_PET == 0 & AB_PET == TRUE)
-  
-  table(ab_df[c("ab_binary_CSF", "AB_CSF")])
-  
-  wat <- filter(ab_df, (ab_binary_CSF == 0 & AB_CSF == TRUE) | (ab_binary_CSF == 1 & AB_CSF == FALSE))
-  
-  ggplot(ab_df, aes(y=fnc_ber_com_composite, fill = AB_PET, group = AB_PET)) +
-    geom_boxplot() +
-    geom_hline(yintercept = 1.03, linetype = "dashed")
-  
-  ggplot(ab_df, aes(y=CSF_Ab42_Ab40_ratio_imputed_Elecsys_2020_2022, fill = AB_CSF, group = AB_CSF)) +
-    geom_boxplot() +
-    geom_hline(yintercept = 0.080, linetype = "dashed")
-  
-  table(biofinder$Dx_ab)
-  
-  
-  ### DX ###
-  dx_df <- select(biofinder, sid, Visit,
-                  diagnosis_baseline_variable, underlying_etiology_text_baseline_variable, 
-                  etiology_genetic_variant_baseline_variable, etiology_extra_comment_baseline_variable,
-                  cognitive_status_baseline_variable, converted_dementia_date_baseline_variable,
-                  converted_dementia_dich_baseline_variable, last_visit_date_dementia_nonconverted_baseline_variable,
-                  converted_MCI_date_baseline_variable, converted_MCI_dich_baseline_variable, 
-                  last_visit_date_MCI_nonconverted_baseline_variable, PDrel_susp_dis_dich_baseline_baseline_variable, neuropathology_done_baseline_variable,                   
-                  gds_clinical, cdr_global_clinical, cdr_sum_of_boxes_clinical, last_visit_date_Pdrel_dis_nonconverted_baseline_variable
-                  ) 
-  
-  tbds <- filter(dx_df, cognitive_status_baseline_variable == "TBD") %>% distinct(sid) %>% unlist()
-  
-  dx_df <- filter(dx_df, sid %in% tbds)
-  
-  
-  
-  
+  tau_cols <- grepv("index", grepv("(tau|tnic)", colnames(biofinder)), invert = TRUE) 
+  tau_df <- biofinder %>% select(sid, Visit, visit_date,  
+                                 all_of(tau_cols)) %>% 
+    filter_out(if_all(all_of(tau_cols), is.na)) %>%
+    mutate(tau_date = ymd(proc_tau_pet_date),
+           tau_date = ifelse(is.na(tau_date), visit_date, tau_date)) %>% drop_na(tau_date) 
+    
+  return(tau_df)                           
 }
+
+
 

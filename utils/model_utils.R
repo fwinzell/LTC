@@ -561,5 +561,108 @@ fit_cluster_nlmms_slow <- function(ucsf_data, silent=FALSE, n_samples=25) {
   ))
 }
 
-
+exp_nlmms_cohort_params <- function(varname, dsubset, n_samples=100, verbose=FALSE) {
+  mu_t <- mean(dsubset$t)
+  dsubset$t <- (dsubset$t - mu_t)/10
+  dsubset$y <- dsubset$y/quantile(dsubset$y, 0.99)
+  rids <- unique(dsubset$RID)
+  
+  ctrl <- nlme::nlmeControl(maxIter=100, 
+                            niterEM = 100, 
+                            msVerbose = FALSE, 
+                            pnlsMaxIter = 20, 
+                            msMaxIter = 200, 
+                            returnObject = FALSE,
+                            tolerance = 1e-2,     # overall convergence (default ~1e-6)
+                            pnlsTol = 1e-1,       # PNLS step tolerance (loosen if PNLS fails)
+                            msTol = 1e-2,
+                            minScale = 0.0001,
+                            opt = "nlminb")
+  
+  # Bootstrap to get different starting values
+  #start_vals <- matrix(NA, nrow = n_samples, ncol = 3)
+  #colnames(start_vals) = c("l", "g", "v")
+  best_ll = 0
+  llrs = c()
+  exp_model=NULL
+  for (b in 1:n_samples) {
+    # Resample rows with replacement
+    start_vals <- dsubset %>% filter(RID %in% sample(RID, size = length(RID), replace = TRUE)) %>%
+      do(as.data.frame(t(get_start_estimates(.)))) %>% unlist()
+    
+    test_model <- tryCatch( { nlme(
+      y ~ exp_model_expr(t, l, g, gi, v),
+      data = dsubset,
+      fixed = list(l ~ Cohort,
+                   g ~ Cohort,
+                   v ~ Cohort),                 # fixed effects for scale l and g and vertical additive effect (v)
+      random = list(gi ~ 1,
+                    v ~ 1),  # random vertical additive effect (v_i) and decline (g_i)
+      groups = ~ RID,
+      start = c(l = log(-start_vals['l']),
+                l.CohortBF2 = 0,
+                v=start_vals['v'],
+                v.CohortBF2 = 0,
+                g = log(start_vals['g']),
+                g.CohortBF2 = 0),
+      control = ctrl,
+      method = "REML"
+    )
+    }, error = function(e) {
+      message("Fitting of model to ", varname, " failed: ", e$message)
+      return(NULL)
+    })
+    if (!is.null(test_model)) {
+      ll_test = logLik(test_model)
+      # Likelihood ratios - if are less than 2 for 3 in a row, model is converged and we break the loop
+      llrs = tail(c(llrs, abs(2*(ll_test-best_ll))), 3)
+      if (length(llrs) > 2 & max(llrs) < 2) {
+        if (verbose) print("Model converged")
+        break
+      }
+      if (ll_test > best_ll) {
+        exp_model <- test_model
+        best_ll = ll_test
+        if (verbose) {
+          cat("New highest likelihood: ", best_ll, "\n")
+          cat("BIC: ", BIC(exp_model), "\n")
+        }
+      }
+      rm(test_model)
+    }
+  }
+  
+  if (!is.null(exp_model)) {
+    ctrl$minScale <- 0.001
+    ctrl$tolerance <- 1e-6
+    ctrl$pnlsTol <- 1e-4
+    ctrl$msTol <- 1e-6
+    #ctrl$returnObject <- FALSE
+    exp_model <- tryCatch( { 
+      update(exp_model, control=ctrl)
+    }, error = function(e) {
+      message("Fitting of model to ", varname, " failed: ", e$message)
+      return(exp_model)
+    })
+    
+    rand <- ranef(exp_model)
+    
+    rand <- rownames_to_column(rand, var = "RID")
+    
+    rand <- rand %>% rename(v=`v.(Intercept)`) %>% rename_with(~ paste0(varname, ".", .), .cols = c(gi, v))
+    
+    fix <- fixef(exp_model)
+    names(fix) <- paste(varname, names(fix), sep=".")
+    
+    results <- list(
+      random = rand,
+      fixed = fix
+    )
+    
+    return(results)
+  } else {
+    return(NULL)
+  }
+  
+}
 
