@@ -218,7 +218,7 @@ plot_dendrogram <- function(LTCobj, save=TRUE, file.name="dendro") {
   w = length(x_labels)*1.5
   h = max_level
   if (save) {
-    ggsave(p, filename = paste0("~/R/EDAP-data/plots/LTC/", file.name, ".png"), width = w, height = h, dpi = 300)
+    ggsave(p, filename = paste0("~/R/EDAP-data/plots/LTC_MC/", file.name, ".png"), width = w, height = h, dpi = 300)
   }
   
   return(p)

@@ -52,7 +52,7 @@ plot_raw_mri <- function(varname, mri_data) {
 
 #### Initial setup ####
 fit_mcdp = FALSE # set to FALSE to load previous MCDP run
-fit_inital = TRUE # set to FALSE to load previous initial model fitting
+fit_inital = FALSE # set to FALSE to load previous initial model fitting
 
 # 1. Load datasets
 mri_data <- load_oasis_mri_data(unified_norm=FALSE)

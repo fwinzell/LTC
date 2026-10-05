@@ -340,7 +340,7 @@ for(i in 1:length(treeIdx)){
 treeIdx
 
 
-plot_dendrogram(multiLTC, save=FALSE)
+plot_dendrogram(multiLTC, save=TRUE)
 
 
 cluster_df <- mutate(cluster_df, Cohort = gsub("_.*", "", RID))

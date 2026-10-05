@@ -166,11 +166,20 @@ get_diagnoses <- function() {
       IMPNOMCI == 1 ~ "Impaired",
       MCI == 1 ~ "MCI",
       DEMENTED == 1 ~ "Dementia"
-    ))
+    )) 
   
-  oasis_dx <- oasis_dx %>% group_by(OASISID) %>% mutate(DX.bl = ifelse(min(days_to_visit) == 0, DX, NA)) %>% ungroup()
+  oasis_dx <- oasis_dx %>% group_by(OASISID) %>% mutate(DX.bl = ifelse(min(days_to_visit) == 0, DX, NA)) %>% ungroup() %>%
+    mutate(DX = factor(DX, levels = c("CN", "Impaired", "MCI", "Dementia"), ordered = TRUE),
+           DX.bl = factor(DX.bl, levels = c("CN", "Impaired", "MCI", "Dementia"), ordered = TRUE)) %>% 
+    group_by(OASISID) %>% mutate(DX.highest = max(DX)) %>% ungroup()
+  
   
   oasis_dx$RID <- as.numeric(gsub("^OAS", "", oasis_dx$OASISID))
+  
+  oasis_cog <- read.csv(paste0(OASIS_DIR, "UDSb4-Form_B4__Global_Staging__CDR__Standard_and_Supplemental/resources/csv/files/OASIS3_UDSb4_cdr.csv")) %>%
+    select(OASISID, days_to_visit, MMSE, CDRSUM) 
+  
+  oasis_dx <- left_join(oasis_dx, oasis_cog, by=c("OASISID", "days_to_visit"))
   
   return(oasis_dx)
 }
@@ -194,15 +203,29 @@ get_tau_pet <- function(get_braak=FALSE) {
 }
 
 get_copath <- function() {
-  oasis_bl <- get_diagnoses() %>% distinct(OASISID, RID, DX.bl) 
+  OASIS_DIR = "~/R/EDAP-data/OASIS/OASIS3_data_files/scans/"
+  
+  oasis_wmh <- read.csv(paste0(OASIS_DIR, "FS-Freesurfer_output/resources/csv/files/OASIS3_Freesurfer_output.csv")) %>%
+    rename(OASISID = Subject) %>%
+    mutate(days_to_visit = as.numeric(str_extract(MR_session, "\\d+$"))) %>%
+    mutate(Months = round(days_to_visit/30.5), Years = Months/12) %>%
+    select(OASISID, days_to_visit, Months, Years, IntraCranialVol, CorticalWhiteMatterVol, 
+           Left.WM.hypointensities_volume, Right.WM.hypointensities_volume, WM.hypointensities_volume)
+  
+  oasis_age <- get_demographics() %>% distinct(OASISID, AgeatEntry) %>%
+    rename(AGE = AgeatEntry)
+  oasis_bl <- get_diagnoses() %>% distinct(OASISID, RID, DX.bl) %>%
+    left_join(oasis_age, by = "OASISID")
   
   oasis_cp <- read.csv(paste0(OASIS_DIR, "UDSd1-Form_D1__Clinician_Diagnosis___Cognitive_Status_and_Dementia/resources/csv/files/OASIS3_UDSd1_diagnoses.csv")) %>%
     distinct(OASISID, amndem, lbdis, cvd) %>% group_by(OASISID) %>% mutate(
       amndem = ifelse(any(!is.na(amndem)), max(amndem, na.rm=TRUE), NA),
-      lbdis = ifelse(any(!is.na(lbdis)), max(lbdis, na.rm=TRUE), NA),
-      cvd = ifelse(any(!is.na(cvd)), max(cvd, na.rm=TRUE), NA)
+      lbdis = ifelse(any(!is.na(lbdis)), max(lbdis, na.rm=TRUE), NA), # Lewy-body disease
+      cvd = ifelse(any(!is.na(cvd)), max(cvd, na.rm=TRUE), NA) # Vascular brain injury - based on clincal and imaging evidence
     ) %>% ungroup() %>% 
     left_join(oasis_bl, by="OASISID") %>% distinct()
+  
+  oasis_cp <- full_join(oasis_cp, oasis_wmh, by="OASISID")
   
   return(oasis_cp)
   

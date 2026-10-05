@@ -295,7 +295,14 @@ get_ab_df <- function() {
   ab_df <- ab_df %>% rowwise %>% mutate(AB_any = any(AB_pos.pet, AB_pos.csf, na.rm=TRUE)) # any biomarker
   
   
-  ab_df <- distinct(ab_df, RID, VISCODE2, .keep_all = TRUE)
+  ab_df <- distinct(ab_df, RID, VISCODE2, .keep_all = TRUE) %>%
+    mutate(
+      M = VISCODE2 %>%
+        str_replace("^(scmri|bl|sc)$", "0") %>%
+        str_remove("m") %>%
+        as.numeric(),
+      Years = M / 12
+    )
   
   # Remove invalid subjects
   ab_df <- anti_join(ab_df, remove_rids, by=c("RID", "VISCODE2"))
@@ -341,9 +348,7 @@ get_tau_pet <- function() {
 get_diagnoses <- function() {
   dx.df <- ADNIMERGE2::DXSUM %>% select(RID, VISCODE2, DIAGNOSIS, DXCONFID) %>% drop_na(DIAGNOSIS) %>%
     mutate(DX.bl = ifelse(VISCODE2 == "bl", DIAGNOSIS, NA)) %>%
-    group_by(RID) %>% mutate(
-      DX.bl = first(na.omit(DX.bl))
-    ) %>% ungroup() %>%
+    group_by(RID) %>% fill(DX.bl, .direction = "downup") %>% ungroup() %>%
     mutate(DIAGNOSIS = factor(DIAGNOSIS, levels = c("CN", "MCI", "Dementia"), ordered = TRUE),
            DX.bl = factor(DX.bl, levels = c("CN", "MCI", "Dementia"), ordered = TRUE)) %>%
     group_by(RID) %>% mutate(
@@ -364,8 +369,8 @@ get_demographics <- function() {
     mutate(VISDATE = parse_date_time(VISDATE, orders=c("Ymd")),
            PTDOB = parse_date_time(PTDOB, orders=c("m/y")), 
            AGE = interval(PTDOB, VISDATE) %/% years(1)) %>% group_by(RID) %>%
-    mutate(AGE = min(AGE, na.rm=TRUE),
-           PTEDUCAT = max(PTEDUCAT, na.rm=TRUE)) %>% ungroup() %>%
+    mutate(AGE = ifelse(any(!is.na(AGE)), min(AGE, na.rm=TRUE), NA),
+           PTEDUCAT = ifelse(any(!is.na(PTEDUCAT)), max(PTEDUCAT, na.rm=TRUE), NA)) %>% ungroup() %>%
     select(RID, AGE, PTGENDER, PTEDUCAT) %>% na.omit() %>% distinct() %>% arrange(RID, AGE)
   
   apoe.df <- ADNIMERGE2::APOERES %>% 
@@ -375,4 +380,38 @@ get_demographics <- function() {
   adni_demog <- left_join(adni_demog, apoe.df, by="RID")
   return(adni_demog)
 }
+
+
+get_copath <- function() {
+  adni_demog <- get_demographics()
+  #### WMHs ####
+  # White matter leisons
+  wmh_df <- ADNIMERGE2::UCD_WMH
+  wmh_df$RID <- as.numeric(wmh_df$RID)
+  
+  visits <- wmh_df$VISCODE2
+  visits <- gsub("scmri", "0", visits)
+  visits <- gsub("bl", "0", visits)
+  visits <- gsub("sc", "0", visits)
+  visits <- sapply(visits, function(x) gsub("m", "", x))
+  wmh_df$M <- as.numeric(visits)
+  wmh_df$Years <- wmh_df$M/12
+  wmh_df |> distinct(RID, M, .keep_all = TRUE) |> arrange(RID, M) -> wmh_df
+  
+  wmh_df <- adni_demog %>% select(RID, AGE) %>% unique() %>% right_join(wmh_df, by="RID") %>%
+    select(-c("VISCODE", "STATUS", "MANUFACTURER", "MANUFACTURERSMODELNAME", "update_stamp", "RUNDATE", "PTID"))
+  
+  # SAA+
+  amp_syn <- read.csv("~/R/EDAP-data/ADNI/AMPRION_ASYN_SAA_04Mar2025.csv", header = TRUE)
+  
+  amp_syn <- amp_syn %>%
+    filter(Result != "Indeterminate") %>%
+    mutate(SAA = ifelse(Result %in% c("Detected-1", "Detected-2"), 1, 0)) %>%
+    rename(SAA_result = Result) %>%
+    select(RID, VISCODE2, SAA_result, SAA)
+  
+  copath <- full_join(wmh_df, amp_syn, by=c("RID", "VISCODE2"))
+  return(copath)
+}
+
 

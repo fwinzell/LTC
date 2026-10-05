@@ -204,13 +204,13 @@ cat_chi_test <- function(df, varname) {
   })
   
   chi_df <- do.call(rbind, chi_res)
-  chi_df$adj_p <- p.adjust(chi_df$p.value, method = "bonferroni")
+  chi_df$p.adj <- p.adjust(chi_df$p.value, method = "bonferroni")
   rownames(chi_df) <- NULL
   chi_df <- chi_df %>% arrange(Cluster1, Cluster2)
 }
 
 
-get_pairwise_p_values <- function(df, response, time_var, correct_for_age=TRUE, by_time = FALSE) {
+pairwise_emm_from_lmm <- function(df, response, time_var, correct_for_age=TRUE, by_time = FALSE) {
   df <- df %>% rename(y = all_of(response),
                       t = all_of(time_var))
   
@@ -228,7 +228,9 @@ get_pairwise_p_values <- function(df, response, time_var, correct_for_age=TRUE, 
     pair_res <- contrast(emm, method="pairwise", adjust="tukey")
   }
   
-  return(pair_res)
+  df <- data.frame(pair_res) %>% separate(contrast, into = c("Cluster1", "Cluster2"), sep = " - ") %>% arrange(Cluster1, Cluster2)
+  
+  return(df)
 }
 
 anova_tukey_test <- function(df, colname) {

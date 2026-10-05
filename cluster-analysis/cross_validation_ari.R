@@ -4,7 +4,7 @@ library(mclust)
 
 source("~/R/LTC/utils/cluster_utils.R")
 
-load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao.RData")
+load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao_2.RData")
 
 Clusters <- data.frame(
   Cluster_0 = multiLTC@Cluster,
@@ -26,6 +26,10 @@ for (ii in 1:5) {
 
 
 rm(multiLTC)
+
+# TABLE
+#         - predicted -
+# | true |
 
 table(Clusters$Cluster_0, Clusters$Cluster_1)
 table(Clusters$Cluster_0, Clusters$Cluster_2)

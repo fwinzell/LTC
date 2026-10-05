@@ -58,6 +58,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(lubridate)
   library(ggalluvial)
+  library(paletteer)
 })
 
 # Locate the loader whether this script is run from the repository root or
@@ -131,8 +132,8 @@ anova_tukey <- function(data, response) {
 }
 
 # Summarise a categorical variable as a percentage and count in each cluster.
-categorical_summary <- function(data, variable) {
-  group_vars <- intersect(c("Cohort", "Cluster"), names(data))
+categorical_summary <- function(data, variable, group_vars = c("Cohort", "Cluster")) {
+  group_vars <- intersect(group_vars, names(data))
   data %>%
     filter(!is.na(Cluster), !is.na(.data[[variable]])) %>%
     mutate(value = .data[[variable]]) %>%
@@ -141,164 +142,6 @@ categorical_summary <- function(data, variable) {
     group_by(across(all_of(group_vars))) %>%
     mutate(percent = 100 * n / sum(n)) %>%
     ungroup()
-}
-
-# Create the generic report.  Each loader argument is exposed so that the
-# caller can choose the longitudinal/normalisation settings for MRI data.
-run_adni_plots_and_tables <- function(cluster_assignments,
-                                      output_dir = NULL,
-                                      only_vol = TRUE,
-                                      filter_n = 0,
-                                      normalize = TRUE) {
-  clusters <- as_cluster_table(cluster_assignments)
-  clusters$RID <- as.numeric(clusters$RID)
-
-  # Load all source data using the central ADNI loader functions.
-  mri <- ucsf_longitudinal_all(only_vol = only_vol,
-                               filter_n = filter_n,
-                               normalize = normalize) %>%
-    inner_join(clusters, by = "RID")
-  # The MRI loader provides elapsed time from the ADNI baseline, but not a
-  # model-specific time shift.  Use zero when no shift was supplied.
-  if (!"time_shift" %in% names(mri)) mri$time_shift <- 0
-  demographics <- get_demographics() %>% inner_join(clusters, by = "RID")
-  diagnoses <- get_diagnoses() %>% inner_join(clusters, by = "RID")
-  amyloid <- get_ab_df() %>% inner_join(clusters, by = "RID")
-  tau_pet <- get_tau_pet() %>% inner_join(clusters, by = "RID")
-
-  # Keep one participant-level record for participant characteristics.
-  participant_demo <- demographics %>%
-    group_by(RID) %>%
-    summarise(across(c(AGE, PTGENDER, PTEDUCAT, APOE4), first),
-              Cluster = first(Cluster), .groups = "drop")
-
-  # Estimate age of onset by subtracting the time shift from baseline age.
-  onset <- mri %>%
-    group_by(RID) %>%
-    summarise(time_shift = first(time_shift[!is.na(time_shift)], default = 0),
-              Cluster = first(Cluster), .groups = "drop") %>%
-    left_join(participant_demo %>% select(RID, AGE), by = "RID") %>%
-    mutate(onset_age = AGE - time_shift)
-
-  # Basic participant-level summaries used in the main descriptive table.
-  mri_count <- mri %>% count(RID, name = "n_mri") %>% inner_join(clusters, by = "RID")
-  demo_summary <- participant_demo %>%
-    group_by(Cluster) %>%
-    summarise(n = n(),
-              age_mean = mean(AGE, na.rm = TRUE),
-              age_sd = sd(AGE, na.rm = TRUE),
-              onset_mean = mean(onset$onset_age[match(RID, onset$RID)], na.rm = TRUE),
-              education_mean = mean(PTEDUCAT, na.rm = TRUE),
-              education_sd = sd(PTEDUCAT, na.rm = TRUE),
-              male_percent = 100 * mean(PTGENDER == "Male", na.rm = TRUE),
-              .groups = "drop")
-  mri_summary <- mri_count %>% group_by(Cluster) %>%
-    summarise(mri_mean = mean(n_mri), mri_sd = sd(n_mri), .groups = "drop")
-
-  # Baseline and highest observed diagnosis for each participant.
-  diagnosis_summary <- diagnoses %>%
-    group_by(RID) %>%
-    summarise(DX.bl = first(na.omit(DX.bl), default = NA),
-              DX.highest = max(DIAGNOSIS, na.rm = TRUE),
-              Cluster = first(Cluster), .groups = "drop") %>%
-    mutate(CN2CI = if_else(DX.bl == "CN", DX.highest != "CN", NA),
-           MCI2AD = if_else(DX.bl == "MCI", DX.highest == "Dementia", NA))
-  diagnosis_counts <- categorical_summary(diagnosis_summary, "DX.bl")
-
-  # Participant-level APOE and amyloid summaries.
-  apoe_summary <- categorical_summary(participant_demo, "APOE4")
-  amyloid_summary <- amyloid %>%
-    group_by(RID) %>%
-    summarise(A4240_ms = min(A4240.ms, na.rm = TRUE),
-              A4240_re = min(A4240.re, na.rm = TRUE),
-              AB_positive = any(AB_any, na.rm = TRUE),
-              Cluster = first(Cluster), .groups = "drop") %>%
-    mutate(across(c(A4240_ms, A4240_re), ~ ifelse(is.infinite(.x), NA, .x)))
-  amyloid_cluster_summary <- amyloid_summary %>% group_by(Cluster) %>%
-    summarise(across(c(A4240_ms, A4240_re),
-                     list(mean = ~ mean(.x, na.rm = TRUE), sd = ~ sd(.x, na.rm = TRUE))),
-              amyloid_positive_percent = 100 * mean(AB_positive, na.rm = TRUE),
-              .groups = "drop")
-
-  # Tau-PET summary: use the maximum observed value per participant.
-  tau_summary <- tau_pet %>%
-    group_by(RID) %>%
-    summarise(across(where(is.numeric), ~ max(.x, na.rm = TRUE)),
-              Cluster = first(Cluster), .groups = "drop") %>%
-    mutate(across(where(is.numeric), ~ ifelse(is.infinite(.x), NA, .x)))
-  tau_cluster_summary <- tau_summary %>% group_by(Cluster) %>%
-    summarise(across(ends_with("SUVR"),
-                     list(mean = ~ mean(.x, na.rm = TRUE), sd = ~ sd(.x, na.rm = TRUE))),
-              .groups = "drop")
-
-  # Combine descriptive summaries into one easy-to-export table.
-  descriptive_table <- demo_summary %>%
-    left_join(mri_summary, by = "Cluster") %>%
-    left_join(amyloid_cluster_summary, by = "Cluster") %>%
-    left_join(tau_cluster_summary, by = "Cluster")
-
-  # Continuous-variable post-hoc tests.
-  age_test <- anova_tukey(participant_demo, "AGE")
-  onset_test <- anova_tukey(onset, "onset_age")
-  education_test <- anova_tukey(participant_demo, "PTEDUCAT")
-
-  # A simple, generic chi-squared test for baseline diagnosis and APOE.
-  categorical_test <- function(data, variable) {
-    data <- data %>% filter(!is.na(Cluster), !is.na(.data[[variable]]))
-    if (n_distinct(data$Cluster) < 2 || n_distinct(data[[variable]]) < 2) return(tibble())
-    result <- chisq.test(table(data$Cluster, data[[variable]]))
-    tibble(variable = variable, statistic = unname(result$statistic), p_value = result$p.value)
-  }
-  categorical_tests <- bind_rows(categorical_test(participant_demo, "APOE4"),
-                                 categorical_test(diagnosis_summary, "DX.bl"),
-                                 categorical_test(amyloid_summary, "AB_positive"))
-
-  # Create the plots.  They are returned, so callers can customise or arrange
-  # them in a manuscript-specific layout.
-  p_age <- ggplot(participant_demo, aes(factor(Cluster), AGE, fill = factor(Cluster))) +
-    geom_boxplot(outlier.shape = NA, alpha = 0.25) +
-    geom_jitter(width = 0.15, height = 0, alpha = 0.7) +
-    theme_classic() + labs(x = "Cluster", y = "Age") + guides(fill = "none")
-  p_onset <- ggplot(onset, aes(factor(Cluster), onset_age, fill = factor(Cluster))) +
-    geom_boxplot(outlier.shape = NA, alpha = 0.25) +
-    geom_jitter(width = 0.15, height = 0, alpha = 0.7) +
-    theme_classic() + labs(x = "Cluster", y = "Estimated age of onset") + guides(fill = "none")
-  p_diagnosis <- ggplot(diagnosis_counts,
-                        aes(factor(Cluster), percent, fill = value)) +
-    geom_col(position = "stack") + theme_classic() +
-    labs(x = "Cluster", y = "Participants (%)", fill = "Baseline diagnosis")
-  p_mri <- ggplot(mri, aes(Years, Cluster, group = RID, colour = factor(Cluster))) +
-    geom_line(alpha = 0.35) + geom_point(alpha = 0.6) + theme_classic() +
-    labs(x = "Years since baseline", y = "Cluster", colour = "Cluster")
-
-  plots <- list(age = p_age, onset = p_onset, diagnosis = p_diagnosis, mri = p_mri)
-
-  # Optionally write machine-readable tables and plots to disk.
-  if (!is.null(output_dir)) {
-    dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-    write.csv(descriptive_table, file.path(output_dir, "descriptive_table.csv"), row.names = FALSE)
-    write.csv(categorical_tests, file.path(output_dir, "categorical_tests.csv"), row.names = FALSE)
-    write.csv(age_test$tukey, file.path(output_dir, "age_tukey.csv"), row.names = FALSE)
-    write.csv(onset_test$tukey, file.path(output_dir, "onset_tukey.csv"), row.names = FALSE)
-    write.csv(education_test$tukey, file.path(output_dir, "education_tukey.csv"), row.names = FALSE)
-    ggsave(file.path(output_dir, "age.png"), p_age, width = 5, height = 4, dpi = 300)
-    ggsave(file.path(output_dir, "onset.png"), p_onset, width = 5, height = 4, dpi = 300)
-    ggsave(file.path(output_dir, "diagnosis.png"), p_diagnosis, width = 6, height = 4, dpi = 300)
-    ggsave(file.path(output_dir, "mri_visits.png"), p_mri, width = 7, height = 5, dpi = 300)
-  }
-
-  list(data = list(mri = mri, demographics = demographics, diagnoses = diagnoses,
-                   amyloid = amyloid, tau_pet = tau_pet),
-       tables = list(descriptive = descriptive_table,
-                     diagnosis = diagnosis_counts,
-                     apoe = apoe_summary,
-                     amyloid = amyloid_cluster_summary,
-                     tau_pet = tau_cluster_summary,
-                     categorical_tests = categorical_tests,
-                     age_tukey = age_test$tukey,
-                     onset_tukey = onset_test$tukey,
-                     education_tukey = education_test$tukey),
-       plots = plots)
 }
 
 # Convert a multi-cohort cluster result into a standard table while retaining
@@ -401,8 +244,9 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
               Cohort = "OASIS")
   diagnoses <- bind_rows(adni_diagnoses, oasis_diagnoses) %>%
     inner_join(clusters, by = c("RID", "Cohort")) %>%
-    mutate(DX = factor(DX, levels = c("CN", "Impaired", "MCI", "Dementia"), ordered = TRUE),
-           DX.bl = factor(DX.bl, levels = c("CN", "Impaired", "MCI", "Dementia"), ordered = TRUE)) 
+    filter_out(DX == "Impaired" | DX.bl == "Impaired") %>%
+    mutate(DX = factor(DX, levels = c("CN", "MCI", "Dementia"), ordered = TRUE),
+           DX.bl = factor(DX.bl, levels = c("CN", "MCI", "Dementia"), ordered = TRUE)) 
   diagnosis_summary <- diagnoses %>%
     group_by(RID, Cohort, Cluster) %>%
     summarise(DX.bl = first(na.omit(DX.bl), default = NA_character_),
@@ -418,13 +262,15 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
       CN2CI = if_else(DX.bl == "CN", DX.highest != "CN", NA),
       MCI2AD = if_else(DX.bl == "MCI", DX.highest == "Dementia", NA))
 
-  # Load amyloid measures from both cohorts.  The common PET variable is
+  # Load AB PET and CSF measures from both cohorts.  The common PET variable is
   # called PET_SUVR; ADNI CSF variables remain available in adni_amyloid.
   adni_amyloid <- adni_loader$get_ab_df() %>%
     transmute(RID = paste0("ADNI_", RID),
               tracer = as.character(TRACER),
               PET_SUVR = SUMMARY_SUVR,
               AB_positive = AB_pos.pet,
+              CSF_RE = A4240.re,
+              CSF_MS = A4240.ms,
               Cohort = "ADNI")
   oasis_amyloid <- oasis_loader$get_oasis_ab(use_centiloid = use_centiloid) %>%
     transmute(RID = paste0("OASIS_", gsub("^OAS", "", OASISID)),
@@ -434,14 +280,19 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
               Cohort = "OASIS") %>%
     mutate(tracer = ifelse(tracer == "AV45", "FBP", tracer))
   amyloid <- bind_rows(adni_amyloid, oasis_amyloid) %>%
-    filter(!is.na(PET_SUVR)) %>%
+    #filter(!is.na(PET_SUVR)) %>%
     inner_join(clusters, by = c("RID", "Cohort"))
-  amyloid_participant <- amyloid %>%
+  amyloid_pet_participant <- amyloid %>%
     group_by(RID, Cohort, Cluster, tracer) %>%
     summarise(PET_SUVR = max(PET_SUVR, na.rm = TRUE),
               AB_positive = any(AB_positive, na.rm = TRUE),
               .groups = "drop") %>%
     filter(tracer %in% c("FBP", "PIB"))
+  amyloid_csf_participant <- amyloid %>% 
+    group_by(RID, Cohort, Cluster) %>%
+    summarise(CSF_RE = na_if(min(CSF_RE, na.rm = TRUE), Inf),
+              CSF_MS = na_if(min(CSF_MS, na.rm = TRUE), Inf),
+              .groups = "drop") 
   
   # Specific Cohort cut-offs
   cutoffs <- data.frame(
@@ -449,20 +300,6 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
     tracer = c("FBP", "FBP", "PIB", "PIB"),
     cutoff = if (use_centiloid) c(1.11, 20.6, 1.21, 16.4) else c(1.11, 1.19, 1.21, 1.42)
   )
-
-  # Tau-PET is returned in a harmonised long-ish table.  Region names differ
-  # between cohorts, so the summary only aggregates shared numeric SUVR fields.
-  adni_tau <- adni_loader$get_tau_pet() %>%
-    prefix_cohort_ids("ADNI")
-  oasis_tau <- oasis_loader$get_tau_pet() %>%
-    prefix_cohort_ids("OASIS", id_column = "OASISID")
-  tau_pet <- bind_rows(adni_tau, oasis_tau) %>%
-    inner_join(clusters, by = c("RID", "Cohort"))
-  tau_fields <- names(tau_pet)[grepl("SUVR", names(tau_pet), ignore.case = TRUE)]
-  tau_summary <- tau_pet %>%
-    group_by(RID, Cohort, Cluster) %>%
-    summarise(across(all_of(tau_fields), ~ max(.x, na.rm = TRUE)), .groups = "drop") %>%
-    mutate(across(all_of(tau_fields), ~ ifelse(is.infinite(.x), NA, .x)))
 
   # Calculate participant-level descriptive summaries, retaining Cohort so
   # pooled and cohort-specific results can both be inspected.
@@ -478,27 +315,24 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
   mri_count <- multi_cohort_df %>% count(RID, Cohort, Cluster, name = "n_mri")
 
   descriptive_table <- participant_demo %>%
-    group_by(Cohort, Cluster) %>%
+    group_by(Cluster) %>%
     summarise(n = n(),
+              adni_percent = 100 * mean(Cohort == "ADNI"),
+              oasis_percent = 100 * mean(Cohort == "OASIS"),
               age_mean = mean(AGE, na.rm = TRUE),
               age_sd = sd(AGE, na.rm = TRUE),
               education_mean = mean(PTEDUCAT, na.rm = TRUE),
               education_sd = sd(PTEDUCAT, na.rm = TRUE),
               male_percent = 100 * mean(PTGENDER == "Male", na.rm = TRUE),
+              fem_percent = 100 * mean(PTGENDER == "Female", na.rm = TRUE),
               .groups = "drop") %>%
-    left_join(onset %>% group_by(Cohort, Cluster) %>%
+    left_join(onset %>% group_by(Cluster) %>%
                 summarise(onset_mean = mean(onset_age, na.rm = TRUE),
                           onset_sd = sd(onset_age, na.rm = TRUE), .groups = "drop"),
-              by = c("Cohort", "Cluster")) %>%
-    left_join(mri_count %>% group_by(Cohort, Cluster) %>%
+              by = c("Cluster")) %>%
+    left_join(mri_count %>% group_by(Cluster) %>%
                 summarise(mri_mean = mean(n_mri), mri_sd = sd(n_mri), .groups = "drop"),
-              by = c("Cohort", "Cluster")) %>%
-    left_join(amyloid_participant %>% group_by(Cohort, Cluster) %>%
-                summarise(pet_mean = mean(PET_SUVR, na.rm = TRUE),
-                          pet_sd = sd(PET_SUVR, na.rm = TRUE),
-                          amyloid_positive_percent = 100 * mean(AB_positive, na.rm = TRUE),
-                          .groups = "drop"),
-              by = c("Cohort", "Cluster"))
+              by = c("Cluster")) 
 
   #diagnosis_counts <- categorical_summary(diagnosis_summary, "DX.bl")
   diagnosis_counts <- diagnosis_summary %>% 
@@ -506,7 +340,7 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
            DX.highest = recode(DX.highest, "Dementia" = "AD")) %>%
     group_by(Cluster) %>%
     count(DX.bl, DX.highest, name = "Freq")
-  apoe_counts <- categorical_summary(participant_demo, "APOE4")
+  apoe_counts <- categorical_summary(participant_demo, "APOE4", group_vars = c("Cluster"))
 
   # Pooled post-hoc tests are useful for the multi-cohort experiment, while
   # the descriptive table and plots above retain the cohort breakdown.
@@ -522,8 +356,7 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
   }
   categorical_tests <- bind_rows(
     categorical_test(participant_demo, "APOE4"),
-    categorical_test(diagnosis_summary, "DX.bl"),
-    categorical_test(amyloid_participant, "AB_positive")
+    categorical_test(diagnosis_summary, "DX.bl")
   )
 
   # Cohort-faceted plots make it possible to see whether a cluster pattern is
@@ -546,13 +379,7 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
   
   plot_of_ages <- ggarrange(p_age, p_onset, nrow = 1, common.legend = TRUE, legend = "right")
   
-  p_diagnosis <- ggplot(diagnosis_counts,
-                        aes(factor(Cluster), percent, fill = value)) +
-    scale_fill_paletteer_d("ggthemes::Tableau_10") +
-    geom_col() + facet_wrap(~ Cohort) + theme_classic() +
-    labs(x = "Cluster", y = "Participants (%)", fill = "Baseline diagnosis")
-  
-  gp_alluv_list <- lapply(unique(clusters$Cluster), function(c) {
+  gp_alluv_list <- lapply(levels(clusters$Cluster), function(c) {
     gp_alluv <- diagnosis_counts %>% filter(Cluster == c) %>%
       ggplot(aes(axis1 = DX.bl, axis2 = DX.highest, y = Freq)) +
       geom_alluvium(aes(fill = DX.highest), width = 1/12) +
@@ -565,9 +392,9 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
   })
   
   gp_alluv <- ggarrange(plotlist=gp_alluv_list, ncol=2, nrow=2, common.legend = TRUE, legend="right")
-  #plot(gp_alluv)
+  plot(gp_alluv)
   
-  p_amyloid <- ggplot(amyloid_participant,
+  p_amyloid <- ggplot(amyloid_pet_participant,
                       aes(factor(Cluster), PET_SUVR, fill = Cluster)) +
     geom_violin(alpha = 0.35, position = position_dodge(width = 0.8)) +
     geom_point(position = position_jitterdodge(jitter.width = 0.12, dodge.width = 0.8),
@@ -581,11 +408,6 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
     scale_fill_paletteer_d("ggthemes::Tableau_10") +
     theme_classic() + labs(x = "Cluster", y = "Amyloid PET measure")
   
-  # Do not include this, not sure what it adds
-  p_mri <- ggplot(multi_cohort_df, aes(Years, Cluster, group = RID, colour = Cohort)) +
-    geom_line(alpha = 0.3) + geom_point(alpha = 0.5) + facet_wrap(~ Cohort) +
-    theme_classic() + labs(x = "Years since baseline", y = "Cluster", colour = "Cohort")
-  
   
   
   plots <- list(age = p_age, onset = p_onset, p_of_ages = plot_of_ages, diagnosis = gp_alluv,
@@ -593,14 +415,6 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
 
   if (!is.null(output_dir)) {
     dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-    #write.csv(descriptive_table, file.path(output_dir, "multicohort_descriptive_table.csv"), row.names = FALSE)
-    #write.csv(diagnosis_counts, file.path(output_dir, "multicohort_diagnosis.csv"), row.names = FALSE)
-    #write.csv(apoe_counts, file.path(output_dir, "multicohort_apoe.csv"), row.names = FALSE)
-    #write.csv(categorical_tests, file.path(output_dir, "multicohort_categorical_tests.csv"), row.names = FALSE)
-    #write.csv(age_test$tukey, file.path(output_dir, "multicohort_age_tukey.csv"), row.names = FALSE)
-    #write.csv(onset_test$tukey, file.path(output_dir, "multicohort_onset_tukey.csv"), row.names = FALSE)
-    #write.csv(education_test$tukey, file.path(output_dir, "multicohort_education_tukey.csv"), row.names = FALSE)
-    #write.csv(tau_summary, file.path(output_dir, "multicohort_tau_summary.csv"), row.names = FALSE)
     ggsave(file.path(output_dir, "multicohort_age.png"), p_age, width = 5, height = 4, dpi = 300)
     ggsave(file.path(output_dir, "multicohort_onset.png"), p_onset, width = 5, height = 4, dpi = 300)
     ggsave(file.path(output_dir, "multicohort_diagnosis.png"), gp_alluv, width = 8, height = 6, dpi = 300)
@@ -608,14 +422,13 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
     ggsave(file.path(output_dir, "multicohort_ages.png"), p_amyloid, width = 9, height = 4, dpi = 500)
   }
 
-  list(data = list(mri = mri, demographics = demographics,
-                   diagnoses = diagnoses, amyloid = amyloid,
-                   tau_pet = tau_pet),
+  list(data = list(demographics = demographics,
+                   diagnoses = diagnoses, amyloid = amyloid),
        tables = list(descriptive = descriptive_table,
-                     diagnosis = diagnosis_counts,
+                     diagnosis = diagnosis_summary,
                      apoe = apoe_counts,
-                     amyloid = amyloid_participant,
-                     tau_pet = tau_summary,
+                     amyloid_pet = amyloid_pet_participant,
+                     amyloid_csf = amyloid_csf_participant,
                      categorical_tests = categorical_tests,
                      age_tukey = age_test$tukey,
                      onset_tukey = onset_test$tukey,
@@ -628,11 +441,109 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
 run <- "exp_km_ab_ao_2"
 load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
 
+# Run these to debug 
+#cluster_assignments = multiLTC
+#only_vol = TRUE
+#filter_n = 0
+#normalize = TRUE
+#unified_norm = TRUE
+#use_centiloid = FALSE
+
+
 multi_results <- run_multicohort_plots_and_tables(
   multiLTC,
   output_dir = "~/R/EDAP-data/plots/LTC_MC"
   )
 
 
+desc <- multi_results$tables$descriptive
+apoe <- multi_results$tables$apoe
+diag <- multi_results$tables$diagnosis %>% group_by(Cluster) %>%
+  summarise(n=n(),
+            n_cn=sum(DX.bl == "CN"),
+            n_mci=sum(DX.bl == "MCI"),
+            n_dem=sum(DX.bl == "Dementia"),
+            n_cn_ci=sum(CN2CI, na.rm = TRUE),
+            n_mci_ad=sum(MCI2AD, na.rm = TRUE))
+
+ab_pet <- multi_results$tables$amyloid_pet %>%
+  group_by(tracer, Cluster) %>%
+  summarise(Mean = mean(PET_SUVR),
+            SD = sd(PET_SUVR))
+ab_csf <- multi_results$tables$amyloid_csf %>%
+  group_by(Cluster) %>% 
+  summarise(CSF_RE_mean = mean(CSF_RE, na.rm=TRUE),
+            CSF_RE_sd = sd(CSF_RE, na.rm=TRUE),
+            CSF_MS_mean = mean(CSF_MS, na.rm=TRUE),
+            CSF_MS_sd = sd(CSF_MS, na.rm=TRUE))
+
+
+# Useful functions for latex table construction
+mean_sd_latex <- function(mean_value, sd_value, digits=2) {
+  sprintf(paste0("$%.", digits, "f \\pm %.", digits, "f$"), mean_value, sd_value)
+}
+percent_latex <- function(p) {
+  if (!p) return("--")
+  sprintf("$%.1f\\%%$", p)
+}
+count_latex <- function(x) sprintf("$%d$", as.integer(x))
+
+library(purrr)
+
+clusterList <- list()
+for (cl in levels(multiLTC@Cluster)) { 
+  row <- filter(desc, Cluster == cl)
+  d <- filter(diag, Cluster == cl)
+  
+  metric_rows <- tibble(
+    Variable=c("N", "ADNI/OASIS", "Age", "Onset", "Educat.", "Num. MRI", "Female",
+               "APOE e4 (0)", "APOE e4 (1)", "APOE e4 (2)", 
+               "CN", "MCI", "AD", "CN - MCI/AD", "MCI - AD",
+               "AB42/AB40 (MS)", "AB42/AB40 (IA)", "AB-PET (FBP)", "AB-PET (PiB)"),
+    Values=c(
+      count_latex(row$n),
+      paste(percent_latex(row$adni_percent), percent_latex(row$oasis_percent), sep="/"),
+      mean_sd_latex(row$age_mean, row$age_sd),
+      mean_sd_latex(row$onset_mean, row$onset_sd),
+      mean_sd_latex(row$education_mean, row$education_sd),
+      mean_sd_latex(row$mri_mean, row$mri_sd),
+      percent_latex(row$fem_percent),
+      
+      percent_latex(filter(apoe, Cluster == cl & value == 0)$percent),
+      percent_latex(filter(apoe, Cluster == cl & value == 1)$percent),
+      percent_latex(filter(apoe, Cluster == cl & value == 2)$percent),
+      
+      percent_latex(100*d$n_cn/d$n),
+      percent_latex(100*d$n_mci/d$n),
+      percent_latex(100*d$n_dem/d$n),
+      percent_latex(100*d$n_cn_ci/d$n_cn),
+      percent_latex(100*d$n_mci_ad/d$n_mci),
+      
+      do.call(mean_sd_latex, c(unname(filter(ab_csf, Cluster == cl)[c("CSF_MS_mean", "CSF_MS_sd")]), 
+                               list(digits = 3))),
+      do.call(mean_sd_latex, c(unname(filter(ab_csf, Cluster == cl)[c("CSF_RE_mean", "CSF_RE_sd")]), 
+                               list(digits = 3))),
+      
+      do.call(mean_sd_latex, c(unname(filter(ab_pet, Cluster == cl & tracer == "FBP")[c("Mean", "SD")]), 
+                               list(digits = 3))),
+      do.call(mean_sd_latex, c(unname(filter(ab_pet, Cluster == cl & tracer == "PIB")[c("Mean", "SD")]), 
+                               list(digits = 3)))
+    )
+  ) %>%
+    rename(!!cl := Values)
+  
+  clusterList[[cl]] <- metric_rows
+}
+
+result <- purrr::reduce(clusterList, left_join, by="Variable")
+knitr::kable(result, format="latex", escape=FALSE, booktabs=TRUE,
+             align=c("l", "l", "l", "l", "l"))
+
+
+
+# Stats table 
+cats <- multi_results$tables$categorical_tests
+age <- multi_results$tables$age_tukey
+onset <- multi_results$tables$onset_tukey
 
 
