@@ -32,7 +32,7 @@ source("~/R/LTC/utils/cluster_utils.R")
 
 fit_inital = FALSE # set to FALSE to load previous initial model fitting
 # 1. Load dataset
-multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_3.csv", header = TRUE)
+multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
 
 # Filter out NACC
 multi_cohort_df <- filter_out(multi_cohort_df, Cohort == "NACC")
@@ -79,7 +79,7 @@ if (fit_inital) {
   
   save(nlmmBasic, file = "~/R/EDAP-data/LTC_MC/cross_validation/nlmmBasic_AO.Rdata")
 } else {
-  load("~/R/EDAP-data/LTC_MC/new/nlmmBasic_AO.Rdata")
+  load("~/R/EDAP-data/LTC_MC/cross_validation/nlmmBasic_AO.Rdata")
 }
 
 cat("Inital models fitted to", round((dim(nlmmBasic$betas)[2]-1)/length(all.vars)*100), "% of variables") 
@@ -99,10 +99,11 @@ create_strat_folds <- function(df, k = 5) {
 }
 
 k=5
+set.seed(123)
 folds <- create_strat_folds(multi_cohort_df, k=k)
 
 
-for(ii in 1:k) {
+for(ii in 3:k) {
   mc_clust <- multi_cohort_df[-folds[[ii]], ]
   rids <- unique(mc_clust$RID)
   

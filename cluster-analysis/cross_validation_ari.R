@@ -99,3 +99,38 @@ table(multiLTC@Cluster)
 
 
 
+##### Random seed
+
+source("~/R/LTC/utils/cluster_utils.R")
+
+load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_ao_2.Rdata")
+
+Clusters <- data.frame(
+  Cluster_0 = multiLTC@Cluster,
+  RID = multiLTC@RID
+)
+n <- length(unique(Clusters$Cluster_0))
+
+for (ii in 1:3) {
+  run <- sprintf("exp_km_ab_ao_%d", ii)
+  load(paste("~/R/EDAP-data/LTC_MC/random_seed/", run, ".Rdata", sep = ""))
+  
+  thisC <- data.frame(Cluster = multiLTC@Cluster, RID = multiLTC@RID)
+  
+  colnames(thisC) <- c(sprintf("Cluster_%d", ii), "RID")
+  Clusters <- Clusters %>% left_join(thisC, by = "RID")
+  Clusters[, sprintf("Cluster_%d", ii)] <- align_clusters(Clusters[, sprintf("Cluster_%d", ii)], Clusters$Cluster_0)
+  
+}
+
+
+rm(multiLTC)
+
+table(Clusters$Cluster_0, Clusters$Cluster_1)
+table(Clusters$Cluster_0, Clusters$Cluster_2)
+table(Clusters$Cluster_0, Clusters$Cluster_3)
+
+
+adjustedRandIndex(Clusters$Cluster_0, Clusters$Cluster_1)
+adjustedRandIndex(Clusters$Cluster_0, Clusters$Cluster_2)
+adjustedRandIndex(Clusters$Cluster_0, Clusters$Cluster_3)

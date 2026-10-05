@@ -287,7 +287,7 @@ run_ltc <- function(seed, max_clusters = 8, mcr = 0.5, savename = "exp_km_ab_ao.
       treeIdx <- c(treeIdx, new_best_c)
     } else {
       # add only the new cluster pair
-      new_best_c <- length(clusterList)+(best_idx-ncol(all.bics))
+      new_best_c <- length(clusterList)-length(nlmmCandidates)+best_idx
       clusterPairs <- c(clusterPairs, newPairs[best_idx-1])
       cat("Added new pair: ", newPairs[[best_idx-1]], "\n")
       treeIdx <- c(treeIdx, new_best_c)
@@ -362,10 +362,13 @@ run_ltc <- function(seed, max_clusters = 8, mcr = 0.5, savename = "exp_km_ab_ao.
   
   cluster_df <- mutate(cluster_df, Cohort = gsub("_.*", "", RID))
 }
-
+cluster_labels <- sort(unique(Clusters$Cluster_0)) 
 if (do_cluster_perm_exp) {
   multi_cohort_df_all <- multi_cohort_df
-  for (CC in unique(Clusters$Cluster_0)) {
+  for (CC in cluster_labels) {
+    if (CC == 'A') {
+      next
+    }
     print(paste0("Running without cluster: ", CC))
     multi_cohort_df <- filter(multi_cohort_df_all, Cluster_0 != CC)
     run_ltc(seed = 1, savename = paste0("exp_km_ab_ao_", CC, ".Rdata"))
