@@ -305,7 +305,7 @@ summarize_cohort_csv <- function(table_df, file, id_col = "RID") {
   }
 
   summary <- bind_rows(metric_rows, pet_rows) %>% select(Variable, Values)
-  write.csv(summary, file=file, row.names=FALSE, na="")
+  #write.csv(summary, file=file, row.names=FALSE, na="")
   invisible(summary)
 }
 
@@ -364,3 +364,36 @@ knitr::kable(cohort_summary, format="latex", escape=FALSE, booktabs=TRUE,
              align=c("l", "l", "l", "l"))
 
 
+
+# Save to csv
+
+csv_summary <- summarize_cohort_csv(adni_table, file="") %>% rename(ADNI=Values) %>%
+  right_join(summarize_cohort_csv(oasis_table, file="") %>% rename(OASIS=Values), by = "Variable") %>%
+  right_join(summarize_cohort_csv(bf_table, file="", id_col="sid") %>% rename(BioFINDER=Values), by = "Variable")
+
+csv_summary_cn <- summarize_cohort_csv(filter(adni_table, DX.bl == "CN"), file="") %>% rename(ADNI=Values) %>%
+  right_join(
+    summarize_cohort_csv(filter(oasis_table, DX.bl == "CN"), file="") %>% rename(OASIS=Values), 
+    by = "Variable") %>%
+  right_join(summarize_cohort_csv(filter(bf_table, DX.bl %in% c("Normal", "SCD")), file="", id_col="sid") %>% rename(BioFINDER=Values), 
+             by = "Variable")
+
+csv_summary_mci <- summarize_cohort_csv(filter(adni_table, DX.bl == "MCI"), file="") %>% rename(ADNI=Values) %>%
+  right_join(
+    summarize_cohort_csv(filter(oasis_table, DX.bl %in% c("Impaired", "MCI")), file="") %>% rename(OASIS=Values), 
+    by = "Variable") %>%
+  right_join(summarize_cohort_csv(filter(bf_table, DX.bl =="MCI"), file="", id_col="sid") %>% rename(BioFINDER=Values), 
+             by = "Variable")
+
+csv_summary_ad <- summarize_cohort_csv(filter(adni_table, DX.bl == "Dementia"), file="") %>% rename(ADNI=Values) %>%
+  right_join(
+    summarize_cohort_csv(filter(oasis_table, DX.bl == "Dementia"), file="") %>% rename(OASIS=Values), 
+    by = "Variable") %>%
+  right_join(summarize_cohort_csv(filter(bf_table, DX.bl == "Dementia"), file="", id_col="sid") %>% rename(BioFINDER=Values), 
+             by = "Variable")
+
+library(openxlsx)
+write.xlsx(csv_summary, "~/R/EDAP-data/tables/cohort_sum.xlsx")
+write.xlsx(csv_summary_cn, "~/R/EDAP-data/tables/cohort_sum_cn.xlsx")
+write.xlsx(csv_summary_mci, "~/R/EDAP-data/tables/cohort_sum_mci.xlsx")
+write.xlsx(csv_summary_ad, "~/R/EDAP-data/tables/cohort_sum_ad.xlsx")
