@@ -30,10 +30,10 @@ source("~/R/LTC/utils/model_utils.R")
 # Extra utils for clustering and visualization
 source("~/R/LTC/utils/cluster_utils.R")
 
-fit_inital = TRUE # set to FALSE to load previous initial model fitting
-do_downsample_exp = TRUE # set to TRUE to run the downsample experiment
+fit_inital = FALSE # set to FALSE to load previous initial model fitting
+do_downsample_exp = FALSE # set to TRUE to run the downsample experiment
 
-save_dir = "~/R/EDAP-data/LTC_MC/downsampled/" # directory to save clustering results, if not changed will overwrite
+save_dir = "~/R/EDAP-data/LTC_MC/random_seed/" # directory to save clustering results, if not changed will overwrite
 
 # 1. Load dataset
 #multi_cohort_df_ <- read.csv("~/R/EDAP-data/MULTI_COHORT.csv", header = TRUE)
@@ -111,7 +111,7 @@ if (fit_inital) {
     func_params = func_df
   )
   
-  save(nlmmBasic, file = paste0(save_dir, "nlmmBasic_AO_fp.Rdata"))
+  save(nlmmBasic, file = paste0(save_dir, "nlmmBasic_AON_fp.Rdata"))
 } else {
   load(paste0(save_dir, "nlmmBasic_AO_fp.Rdata"))
 }
@@ -126,8 +126,8 @@ sil_scores <- list()
 sil_scores[[1]] <- data.frame(cluster=NA, neighbor=NA, sil_width=NA)
 
 #### KM, no cross-validation ####
-for(ii in 1:1) {
-  set.seed(ii+666)
+for(ii in 1:3) {
+  set.seed(10*ii)
   mc_clust <- multi_cohort_df #%>% select(RID, time_shift, M, DX.bl, Months, Years, all_of(vars))
   rids <- unique(mc_clust$RID)
   
@@ -269,7 +269,7 @@ for(ii in 1:1) {
       treeIdx <- c(treeIdx, new_best_c)
     } else {
       # add only the new cluster pair
-      new_best_c <- length(clusterList)+(best_idx-ncol(all.bics))
+      new_best_c <- length(clusterList)-length(nlmmCandidates)+best_idx
       clusterPairs <- c(clusterPairs, newPairs[best_idx-1])
       cat("Added new pair: ", newPairs[[best_idx-1]], "\n")
       treeIdx <- c(treeIdx, new_best_c)
@@ -326,7 +326,7 @@ for(ii in 1:1) {
                  ll = nlmmBest$logLikes,
                  tree = adjMat)
   
-  save(multiLTC, file = paste0(save_dir, "exp_km_ab_ao.Rdata"))
+  save(multiLTC, file = paste0(save_dir, "exp_km_ab_ao_", ii, ".Rdata"))
 }
 
 for(i in 1:length(clusterList)){
