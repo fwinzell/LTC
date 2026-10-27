@@ -35,7 +35,8 @@ mri_controls <- mc_mri %>% filter(DX.bl == "CN" & !(RID %in% ab_pos_rids))
 Clusters <- data.frame(
   Cluster = multiLTC@Cluster,
   RID = multiLTC@RID
-)
+) %>%
+  mutate(Cluster = recode(Cluster, "C" = "A", "D" = "B"))
 
 Clusters %>% left_join(multi_cohort_df, by = "RID") %>% drop_na(Cluster) -> multi_cohort_df
 
@@ -85,7 +86,7 @@ distinct(all_means, Cluster, n)
 dir.workbench.software = "/Users/filipwinzell/Workbench/software/workbench"#paste0(dir.root.olink, "AHBA_correlations/WorkBench_projections/software/workbench/")
 
 # directory in which you want all surface renderings to be stored
-dir.workbench = paste0('/Users/filipwinzell/Workbench/Surface_renderings/LTC_MC/') 
+dir.workbench = paste0('/Users/filipwinzell/Workbench/Surface_renderings/LTC_MC/2-cl/') 
 
 # directory in which the atlases are stored
 dir.atlas = '/Users/filipwinzell/Workbench/atlas'#paste0(dir.root.olink, "AHBA_correlations/WorkBench_projections/atlas")

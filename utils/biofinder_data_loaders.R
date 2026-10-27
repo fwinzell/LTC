@@ -8,7 +8,13 @@ library(readxl)
 get_ab_df <- function(path = "~/R/EDAP-data/BioFINDER/data_for_Filip/data_filip.csv") {
   biofinder <- read.csv(path)
   
-  ab_df <- select(biofinder, sid, Visit, cognitive_status_baseline_variable,
+  biofinder <- mutate(biofinder, visit_date_filled = ifelse(trimws(visit_date) == "", mmse_date, visit_date)) %>%
+    arrange(sid, Visit) %>% group_by(sid) %>% 
+    mutate(baseline_date = .data$visit_date_filled[1],
+           Years = interval(baseline_date, visit_date_filled) / years(1),
+           Years = ifelse(is.na(Years), Visit, Years)) %>% ungroup()
+  
+  ab_df <- select(biofinder, sid, Visit, Years, cognitive_status_baseline_variable,
                   mmse_score, cdr_global_clinical,
                   ab_status, ab_binary_PET, ab_binary_CSF, Dx_ab, 
                   fnc_ber_com_composite, 
@@ -418,5 +424,37 @@ get_tau_data <- function(path = "~/R/EDAP-data/BioFINDER/data_for_Filip/data_fil
   return(tau_df)                           
 }
 
+get_copath <- function() {
+  biofinder <- read.csv("~/R/EDAP-data/BioFINDER/data_for_Filip/data_filip.csv")
+  bl_dates <- biofinder %>% 
+    mutate(visit_date_filled = ifelse(trimws(visit_date) == "", mmse_date, visit_date)) %>%
+    distinct(sid, Visit, visit_date_filled) %>% filter(Visit == 0) %>%
+    select(-Visit) %>% rename(baseline_date = visit_date_filled)
+  
+  mri_df <- read.csv("~/R/EDAP-data/BioFINDER/data_for_Filip/data_MRI_updated.csv") %>%
+    filter(!is.na(mrdate))
+  
+  na_sids <- filter(mri_df, sid == "") %>% 
+    separate(uid, into = c("Study", "sid", "Visit", "data_index"), sep = "_+", remove=FALSE, extra="drop")
+  
+  mri_df <- mri_df %>% filter(sid != "") %>% rbind(na_sids) %>% 
+    mutate(mri_date = as.Date(as.character(mrdate), format = "%Y%m%d")) %>%
+    left_join(bl_dates, by="sid") %>%
+    mutate(Years = interval(baseline_date, mri_date) / years(1))
+  
+  # TDP=(LH_MIDDLETEMPORAL+RH_MIDDLETEMPORAL+LH_INFERIORTEMPORAL+RH_INFERIORTEMPORAL)/(LH_HIPPOCAMPUS+RH_HIPPOCAMPUS)
+  copaths <- mri_df %>% select(sid, mri_date, Years,
+                               all_of(grepv("grayvol_(middletemporal|inferiortemporal)", names(mri_df))),
+                               all_of(grepv("^samseg_.*Hippocampus", names(mri_df))),
+                               #samseg_vols_WM_hypointensities, 
+                               samseg_wmhs_WMH_total_mm3
+                               ) %>%
+    mutate(tdp_signature_nom = aparc_grayvol_inferiortemporal_L+aparc_grayvol_inferiortemporal_R+aparc_grayvol_middletemporal_L+aparc_grayvol_middletemporal_R,
+           tdp_signature_den = samseg_vols_Left_Hippocampus+samseg_vols_Right_Hippocampus,
+           tdp = tdp_signature_nom/tdp_signature_den,
+           wmhs_total = samseg_wmhs_WMH_total_mm3) 
+  
+  return(select(copaths, sid, mri_date, Years, tdp, wmhs_total))
+}
 
 

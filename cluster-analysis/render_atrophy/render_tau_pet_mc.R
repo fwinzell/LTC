@@ -94,6 +94,7 @@ tau_df <- multi_cohort_df %>% distinct(RID, time_shift) %>% right_join(tau_df, b
   mutate(Time = Years + time_shift) %>% left_join(Clusters, by = "RID") %>% drop_na(Cluster)
 
 tau_df %>% distinct(RID, Cluster) %>% count(Cluster)
+tau_df %>% distinct(RID, Cohort) %>% count(Cohort)
 length(unique(tau_df$RID))
 
 tau_df$Stage <- cut(tau_df$Time, 
@@ -102,6 +103,47 @@ tau_df$Stage <- cut(tau_df$Time,
 table(tau_df[c("Cluster", "Stage")], useNA = "ifany")
 
 tau_df <- mutate(tau_df, Cluster = factor(as.character(Cluster)))
+
+vars <- grepv("^CTX_[LR]H_.*_SUVR$", names(tau_df))
+
+# investigate cohort differences
+results <- data.frame()
+for (varname in vars) {
+  mu <- tau.controls %>% select(RID, Years, Cohort, all_of(varname)) %>% na.omit() %>%
+    arrange(Years) %>% distinct(RID, .keep_all = TRUE) %>% group_by(Cohort) %>%
+    summarise(Mean = mean(.data[[varname]], na.rm=TRUE),
+              SD = sd(.data[[varname]], na.rm=TRUE)) 
+  
+  df <- tau_df %>% select(RID, Time, Cluster, Cohort, Stage, all_of(varname)) %>%
+    drop_na(Cluster) %>% left_join(mu, by = "Cohort") %>% 
+    mutate(z = (.data[[varname]]-Mean)/SD)
+  
+  fit0 <- lmer(
+    z ~ Time + (1 | RID),
+    data = df,
+    REML = FALSE
+  )
+  
+  fit_cohort <- lmer(
+    z ~ Time + Cohort + (1 | RID),
+    data = df,
+    REML = FALSE
+  )
+  
+  test <- anova(fit0, fit_cohort)
+  
+  results <- rbind(
+    results,
+    data.frame(
+      Region = varname,
+      Chisq = test$Chisq[2],
+      p = test$`Pr(>Chisq)`[2]
+    )
+  )
+}
+results$p_FDR <- p.adjust(results$p, method = "BH")
+results$effect <- results$p_FDR < 0.05
+table(results$effect)
 
 all_means <- data.frame()
 for (varname in vars) {

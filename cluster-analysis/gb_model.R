@@ -14,22 +14,68 @@ library(xgboost)
 library(caret)
 library(pROC)
 
-source("~/R/LTC/utils/ucsf_data_loaders.R")
-run <- "exp_km_ab"
-load(paste("~/R/EDAP-data/LTC4/", run, ".Rdata", sep = ""))
+dataset = "multi"
 
-ucsf_data <- ucsf_longitudinal_all(only_vol = TRUE, filter_n = 0)
-dpm_df <- read.csv("~/R/EDAP-data/ADNI/DPM_ADNI.csv", header=TRUE)
-ucsf_data <- dpm_df %>% select(RID, time_shift) %>% distinct() %>% right_join(ucsf_data, by="RID") %>%
-  mutate(Time = Years + time_shift)
+if (dataset == "adni") {
+  source(paste0("~/R/LTC/utils/", dataset, "_data_loaders.R"))
+  run <- "exp_km_ab"
+  load(paste("~/R/EDAP-data/LTC4/", run, ".Rdata", sep = ""))
+  
+  mri_data <- ucsf_longitudinal_all(only_vol = TRUE, filter_n = 0)
+  dpm_df <- read.csv("~/R/EDAP-data/ADNI/DPM_ADNI.csv", header=TRUE)
+  mri_data <- dpm_df %>% select(RID, time_shift) %>% distinct() %>% right_join(mri_data, by="RID") %>%
+    mutate(Time = Years + time_shift)
+  
+  Clusters <- data.frame(
+    Cluster = adniLTC@Cluster,
+    RID = adniLTC@RID
+  )
+  
+  mri_data <- Clusters %>% left_join(mri_data, by = "RID") %>% drop_na(Cluster) %>%
+    select(RID, Cluster, Time, all_of(adniLTC@varNames))
+  
+  mri_cols <- adniLTC@varNames
+} else if(dataset == "oasis") {
+  source(paste0("~/R/LTC/utils/", dataset, "_data_loaders.R"))
+  run <- "oasis_exp_km_ab_2"
+  load(paste("~/R/EDAP-data/LTC4/", run, ".Rdata", sep = ""))
+  
+  mri_data <- load_oasis_mri_data(unified_norm = TRUE)
+  
+  dpm_df <- read.csv("~/R/EDAP-data/OASIS/DPM_OASIS.csv", header=TRUE)
+  mri_data <- dpm_df %>% select(RID, time_shift) %>% distinct() %>% right_join(mri_data, by="RID") %>%
+    mutate(Time = Years + time_shift) %>% drop_na(Time)
+  
+  Clusters <- data.frame(
+    Cluster = oasisLTC@Cluster,
+    RID = oasisLTC@RID
+  )
+  
+  mri_data <- left_join(mri_data, Clusters, by = "RID") %>% drop_na(Cluster)
+  
+  mri_cols <- oasisLTC@varNames
+  #mri_cols <- c(grepv("^[lr]h_[a-z]+_volume$", colnames(mri_data)), 
+  #              grepv("^(Left|Right)\\.[a-zA-Z._]+_volume$", colnames(mri_data)))
+} else if(dataset == "multi") {
+  source("~/R/LTC/utils/multi_cohort_loader.R")
+  run <- "exp_km_ab_ao_2"
+  load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
+  
+  multi_cohort_df <- read.csv("~/R/EDAP-data/MULTI_COHORT_4.csv", header = TRUE)
+  # Filter out NACC
+  mri_data <- filter_out(multi_cohort_df, Cohort == "NACC")
+  
+  Clusters <- data.frame(
+    Cluster = multiLTC@Cluster,
+    RID = multiLTC@RID
+  )
+  
+  mri_data <- Clusters %>% left_join(mri_data, by = "RID") %>% drop_na(Cluster) %>%
+    select(RID, Cluster, Time, all_of(multiLTC@varNames))
 
-Clusters <- data.frame(
-  Cluster = adniLTC@Cluster,
-  RID = adniLTC@RID
-)
+  mri_cols <- multiLTC@varNames
+}
 
-ucsf_data <- Clusters %>% left_join(ucsf_data, by = "RID") %>% drop_na(Cluster) %>%
-  select(RID, Cluster, Time, all_of(adniLTC@varNames))
 
 
 create_strat_folds <- function(df, k = 5) {
@@ -46,25 +92,24 @@ create_strat_folds <- function(df, k = 5) {
 
 
 set.seed(123)
-folds <- create_strat_folds(ucsf_data, k=5) #caret::createFolds(cldp$Cluster, k = 5) #groupKFold(cldp$RID, k = 5)
+folds <- create_strat_folds(mri_data, k=5) #caret::createFolds(cldp$Cluster, k = 5) #groupKFold(cldp$RID, k = 5)
 
 i = 1
-n_clusters <- length(unique(adniLTC@Cluster))
+n_clusters <- length(unique(mri_data$Cluster))
 cv_conf_df <- data.frame()
 acc = 0
 rocAll <- data.frame()
 varAll <- data.frame()
 aucAll <- data.frame()
 for (f_idxs in folds) {
-  mr_vars <- adniLTC@varNames
   
-  train_data <- ucsf_data[-f_idxs, ]
-  test_data <- ucsf_data[f_idxs, ]
+  train_data <- mri_data[-f_idxs, ]
+  test_data <- mri_data[f_idxs, ]
   
   train_labels <- as.numeric(train_data$Cluster) - 1
-  train_matrix <- xgb.DMatrix(as.matrix(train_data[,mr_vars]), label = train_labels)
+  train_matrix <- xgb.DMatrix(as.matrix(train_data[,mri_cols]), label = train_labels)
   test_labels <- as.numeric(test_data$Cluster) - 1
-  test_matrix <- xgb.DMatrix(as.matrix(test_data[,mr_vars]), label = test_labels)
+  test_matrix <- xgb.DMatrix(as.matrix(test_data[,mri_cols]), label = test_labels)
   
   xgb_model <- xgboost(
     data = train_matrix,
@@ -183,6 +228,7 @@ print(paste("Average Multi-label AUC", mauc, sep =": "))
 print(paste("SD AUC", sdauc, sep =": "))
 
 # For exp_km: AUC=0.7485 (0.0961)
+# For multi cohort: AUC=0.7765 (0.1074)
 
 acc = acc / length(folds)
 print(paste("Average Accuracy", acc, sep =": "))
@@ -220,7 +266,7 @@ varAll %>% group_by(Cluster) %>% summarise_all(mean) %>%
   select(-Fold) %>% pivot_longer(cols = -Cluster, names_to = "MR.var", values_to = "Importance") -> summary_vars
 
 sapply(summary_vars$MR.var, function(varname) {
-  tail(strsplit(attr(ucsf_data[[varname]], 'label'), " ")[[1]],n=1)
+  tail(strsplit(attr(mri_data[[varname]], 'label'), " ")[[1]],n=1)
 }) -> summary_vars$Variables
 
 brain_regions |> select(Variables, Lobe) |> left_join(summary_vars, by = "Variables") |> drop_na() -> summary_vars
@@ -235,8 +281,8 @@ varp <- summary_vars |> ggplot(aes(x = Lobe, y = Importance, fill = Cluster)) +
 
 plot(varp)
 
-ggsave(conf_p, filename = "~/R/EDAP-data/plots/LTC4/ltc_xgb_confmat.png", width = 5, height = 5, dpi = 300)
-ggsave(rocp, filename = "~/R/EDAP-data/plots/LTC4/ltc_xgb_roc.png", width = 5, height = 4, dpi = 300)
+ggsave(conf_p, filename = "~/R/EDAP-data/plots/LTC_MC/ltc_xgb_confmat.png", width = 5, height = 5, dpi = 300)
+ggsave(rocp, filename = "~/R/EDAP-data/plots/LTC_MC/ltc_xgb_roc.png", width = 5, height = 4, dpi = 300)
 #ggsave(varp, filename = "~/R/EDAP-plots/rf_varimp.png", width = 7, height = 10, dpi = 300)
 
 

@@ -29,15 +29,34 @@ table(Clusters$Cluster, Clusters$Cluster_B)
 table(Clusters$Cluster, Clusters$Cluster_C)
 table(Clusters$Cluster, Clusters$Cluster_D)
 
+aris <- c()
+for (cl in LETTERS[1:4]) {
+  tab <- Clusters %>% select(Cluster, all_of(paste0("Cluster_", cl))) %>%
+    filter(Cluster != cl) %>%
+    mutate(Cluster = as.character(Cluster))
+  aris <- c(aris, do.call(adjustedRandIndex, unname(as.list(tab))))
+}
+
+
+aris <- Clusters %>% select(-RID, -Cluster) %>% sapply(function(col) {
+  idxs <- which(!is.na(col))
+  adjustedRandIndex(Clusters$Cluster[idxs], col[idxs])
+})
+print(mean(aris))
+print(sd(aris))
+
 calculate_accuracy <- function(ref, test) {
   tab <- table(ref, test)
   sum(diag(tab))/sum(tab)
 }
 
-calculate_accuracy(Clusters$Cluster, Clusters$Cluster_A)
-calculate_accuracy(Clusters$Cluster, Clusters$Cluster_B)
-calculate_accuracy(Clusters$Cluster, Clusters$Cluster_C)
-calculate_accuracy(Clusters$Cluster, Clusters$Cluster_D)
+accs <- c(calculate_accuracy(Clusters$Cluster, Clusters$Cluster_A),
+calculate_accuracy(Clusters$Cluster, Clusters$Cluster_B),
+calculate_accuracy(Clusters$Cluster, Clusters$Cluster_C),
+calculate_accuracy(Clusters$Cluster, Clusters$Cluster_D))
+
+mean(accs)
+sd(accs)
 
 Clusters$RID <- as.character(Clusters$RID)
 missc_A <- filter(Clusters, as.character(Cluster) != as.character(Cluster_A)) %>% select(RID)

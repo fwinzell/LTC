@@ -220,6 +220,95 @@ summarize_cohort <- function(table_df, id_col = "RID") {
   bind_rows(metric_rows, pet_rows) %>% select(Variable, Values)
 }
 
+# Build the cohort summary independently of the LaTeX formatter and save it as
+# CSV. The measures, denominators, visit de-duplication, and display precision
+# match summarize_cohort; CSV values omit LaTeX markup.
+summarize_cohort_csv <- function(table_df, file, id_col = "RID") {
+  subjects <- table_df %>%
+    filter(!is.na(.data[[id_col]])) %>%
+    distinct(.data[[id_col]], .keep_all=TRUE)
+
+  as_numeric <- function(x) suppressWarnings(as.numeric(as.character(x)))
+  mean_sd_csv <- function(x, digits=2) {
+    x <- as_numeric(x)
+    x <- x[is.finite(x)]
+    if (!length(x)) return("--")
+    sd_value <- if (length(x) > 1) stats::sd(x) else 0
+    sprintf(paste0("%.", digits, "f ± %.", digits, "f"), mean(x), sd_value)
+  }
+  percent_csv <- function(n, denominator) {
+    if (!denominator) return("--")
+    sprintf("%.1f%%", 100*n/denominator)
+  }
+  visit_col <- intersect(c("VISCODE2", "days_to_visit", "Visit"), names(table_df))[1]
+
+  if ("MMSE" %in% names(table_df)) {
+    mmse_observations <- table_df %>%
+      transmute(Subject=as.character(.data[[id_col]]),
+                VisitKey=if (!is.na(visit_col)) as.character(.data[[visit_col]]) else NA_character_,
+                MMSE=as_numeric(MMSE)) %>%
+      filter(!is.na(Subject), is.finite(MMSE)) %>%
+      distinct(Subject, VisitKey, MMSE) %>%
+      pull(MMSE)
+  } else {
+    mmse_observations <- numeric()
+  }
+
+  metric_rows <- tibble(
+    Variable=c("N", "Age (Y, at baseline)", "Education (Y)", "Female (%)",
+               "Num. MRIs", "Follow up (Y)",
+               "APOE-e4 (0)", "APOE-e4 (1)", "APOE-e4 (2)", "MMSE"),
+    Values=c(
+      as.character(n_distinct(subjects[[id_col]])),
+      mean_sd_csv(subjects$AGE),
+      mean_sd_csv(subjects$EDUC),
+      percent_csv(sum(as.character(subjects$GENDER) == "Female", na.rm=TRUE),
+                  sum(!is.na(subjects$GENDER))),
+      mean_sd_csv(subjects$n_mri),
+      mean_sd_csv(subjects$follow_up),
+      percent_csv(sum(as_numeric(subjects$APOE4) == 0, na.rm=TRUE),
+                  sum(!is.na(subjects$APOE4))),
+      percent_csv(sum(as_numeric(subjects$APOE4) == 1, na.rm=TRUE),
+                  sum(!is.na(subjects$APOE4))),
+      percent_csv(sum(as_numeric(subjects$APOE4) == 2, na.rm=TRUE),
+                  sum(!is.na(subjects$APOE4))),
+      mean_sd_csv(mmse_observations)
+    )
+  )
+
+  tracer_col <- intersect(c("TRACER", "tracer"), names(table_df))[1]
+  value_col <- intersect(c("SUMMARY_SUVR", "PET_SUVR", "AB_PET_SUVR"), names(table_df))[1]
+  pet_labels <- c("FBP"="Aβ-PET (FBP)", "FMM"="Aβ-PET (FMM)",
+                  "PIB"="Aβ-PET (PiB)")
+  pet_rows <- tibble(Variable=unname(pet_labels), Values=rep("--", 3))
+  if (!is.na(tracer_col) && !is.na(value_col)) {
+    pet_summary <- table_df %>%
+      transmute(Subject=as.character(.data[[id_col]]),
+                VisitKey=if (!is.na(visit_col)) as.character(.data[[visit_col]]) else NA_character_,
+                Tracer=toupper(as.character(.data[[tracer_col]])),
+                SUVR=as_numeric(.data[[value_col]])) %>%
+      mutate(Tracer=case_when(
+        Tracer %in% c("AV45", "FLORBETAPIR", "FBP") ~ "FBP",
+        Tracer %in% c("FLUTEMETAMOL", "FMM") ~ "FMM",
+        Tracer %in% c("PIB", "PITTSBURGH COMPOUND B") ~ "PIB",
+        TRUE ~ Tracer
+      )) %>%
+      filter(!is.na(Subject), Tracer %in% c("FBP", "FMM", "PIB"), is.finite(SUVR)) %>%
+      distinct(Subject, VisitKey, Tracer, SUVR) %>%
+      group_by(Tracer) %>%
+      summarise(Value=mean_sd_csv(SUVR, digits=3), .groups="drop")
+    if (nrow(pet_summary)) {
+      pet_rows <- pet_rows %>% rows_update(
+        pet_summary %>% transmute(Variable=unname(pet_labels[Tracer]), Values=Value),
+        by="Variable")
+    }
+  }
+
+  summary <- bind_rows(metric_rows, pet_rows) %>% select(Variable, Values)
+  write.csv(summary, file=file, row.names=FALSE, na="")
+  invisible(summary)
+}
+
 adni_summary <- summarize_cohort(adni_table, id_col="RID") %>% rename(ADNI=Values)
 oasis_summary <- summarize_cohort(oasis_table, id_col="RID") %>% rename(OASIS=Values)
 bf_summary <- summarize_cohort(bf_table, id_col="sid") %>% rename(BioFINDER=Values)

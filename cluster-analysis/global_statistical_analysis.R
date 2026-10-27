@@ -163,6 +163,31 @@ pairwise <- do.call(rbind, pairwise)
 significant <- filter(pairwise, p.value<0.05)
 table(significant$contrast)
 
+pairwise_table <- select(pairwise, region, contrast, p.value) %>% 
+  pivot_wider(names_from = contrast, values_from = p.value, id_cols = region)
+
+library(knitr)
+library(stringr)
+
+pairwise_table %>% mutate(across(where(is.numeric),
+                                 ~ paste0("$", formatC(round(.x, 3), format = "f", digits = 3), "$"))) %>% 
+  knitr::kable(format="latex", escape=FALSE, booktabs=TRUE,
+             align=c("l", "l", "l", "l", "l", "l", "l"))
+
+table <- pairwise_table %>% mutate(n_sig = rowSums(across(where(is.numeric)) < 0.05, na.rm = TRUE)) %>%
+  select(region, n_sig) %>% right_join(select(results, region, chisq, df, p, p_fdr), by="region")
+
+table %>% mutate(across(c("p", "p_fdr", "chisq"),
+                 ~ paste0("$", formatC(round(.x, 3), format = "f", digits = 3), "$"))) %>%
+  mutate(region = str_to_title(gsub("_", " ", region))) %>%
+  knitr::kable(format="latex", escape=FALSE, booktabs=TRUE,
+               align=c("l", "l", "l", "l", "l", "l"))
+
+
+
+
+
+
 results_2 <- lapply(mri_cols, function(var) {
   
   mc_df_z$global_z <- rowMeans(
@@ -201,6 +226,7 @@ results_2$p_fdr <- p.adjust(results_2$p, method = "BH")
 
 table((results$p_fdr < 0.05))
 table((results_2$p_fdr < 0.05))
+table((results_2$p_fdr < 0.005))
 
 make_dk_brain_plot <- function(result_df) {
   library(ggseg)
@@ -222,7 +248,10 @@ make_dk_brain_plot <- function(result_df) {
     scale_fill_viridis_c(
       option = "magma",
       na.value = "grey90",
-      name = expression(-log[10](FDR~p))
+      name = expression(-log[10](FDR~p)),
+      limits = c(0, 7),
+      oob = scales::squish,
+      breaks = 0:7,
     ) +
     theme_void() +
     theme(legend.position = "bottom")
@@ -237,7 +266,10 @@ make_dk_brain_plot <- function(result_df) {
     scale_fill_viridis_c(
       option = "magma",
       na.value = "grey90",
-      name = expression(-log[10](FDR~p))
+      name = expression(-log[10](FDR~p)),
+      limits = c(0, 7),
+      oob = scales::squish,
+      breaks = 0:7,
     ) +
     theme_void() +
     theme(legend.position = "bottom")
@@ -292,7 +324,10 @@ make_aseg_brain_plot <- function(result_df) {
     scale_fill_viridis_c(
       option = "magma",
       na.value = "grey90",
-      name = expression(-log[10](FDR~p))
+      name = expression(-log[10](FDR~p)),
+      limits = c(0, 7),
+      oob = scales::squish,
+      breaks = 0:7,
     ) +
     theme_void() +
     theme(legend.position = "bottom")
@@ -303,4 +338,11 @@ make_aseg_brain_plot <- function(result_df) {
 
 gp_aseg_1 <- make_aseg_brain_plot(results)
 gp_aseg_2 <- make_aseg_brain_plot(results_2)
+
+# saving
+ggsave("~/R/EDAP-data/plots/LTC_MC/global_atrophy_dk.png", gp1, width = 5, height = 3, dpi = 300)
+ggsave("~/R/EDAP-data/plots/LTC_MC/global_atrophy_aseg.png", gp_aseg_1, width = 4, height = 4, dpi = 300)
+
+ggsave("~/R/EDAP-data/plots/LTC_MC/global_temporal_atrophy_dk.png", gp2, width = 5, height = 3, dpi = 300)
+ggsave("~/R/EDAP-data/plots/LTC_MC/global_temporal_atrophy_aseg.png", gp_aseg_2, width = 4, height = 4, dpi = 300)
 

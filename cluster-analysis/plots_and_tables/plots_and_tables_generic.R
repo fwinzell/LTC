@@ -328,7 +328,10 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
               .groups = "drop") %>%
     left_join(onset %>% group_by(Cluster) %>%
                 summarise(onset_mean = mean(onset_age, na.rm = TRUE),
-                          onset_sd = sd(onset_age, na.rm = TRUE), .groups = "drop"),
+                          onset_sd = sd(onset_age, na.rm = TRUE),
+                          timeshift_mean = mean(time_shift, na.rm=TRUE),
+                          timeshift_sd = sd(time_shift, na.rm=TRUE),
+                          .groups = "drop"),
               by = c("Cluster")) %>%
     left_join(mri_count %>% group_by(Cluster) %>%
                 summarise(mri_mean = mean(n_mri), mri_sd = sd(n_mri), .groups = "drop"),
@@ -377,6 +380,14 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
     theme_classic() +
     labs(x = "Cluster", y = "Estimated age of onset")
   
+  p_timeshift <- ggplot(onset, aes(factor(Cluster), time_shift, fill = Cluster)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.3) +
+    geom_jitter(width = 0.15, height = 0, alpha = 0.6, aes(color = Cohort)) +
+    scale_color_paletteer_d("ggthemes::wsj_red_green") +
+    scale_fill_paletteer_d("ggthemes::Tableau_10") +
+    theme_classic() +
+    labs(x = "Cluster", y = "MCDP time-shift")
+  
   plot_of_ages <- ggarrange(p_age, p_onset, nrow = 1, common.legend = TRUE, legend = "right")
   
   gp_alluv_list <- lapply(levels(clusters$Cluster), function(c) {
@@ -411,12 +422,13 @@ run_multicohort_plots_and_tables <- function(cluster_assignments,
   
   
   plots <- list(age = p_age, onset = p_onset, p_of_ages = plot_of_ages, diagnosis = gp_alluv,
-                amyloid = p_amyloid)
+                amyloid = p_amyloid, time_shift = p_timeshift)
 
   if (!is.null(output_dir)) {
     dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
     ggsave(file.path(output_dir, "multicohort_age.png"), p_age, width = 5, height = 4, dpi = 300)
     ggsave(file.path(output_dir, "multicohort_onset.png"), p_onset, width = 5, height = 4, dpi = 300)
+    ggsave(file.path(output_dir, "multicohort_timeshift.png"), p_timeshift, width = 5, height = 4, dpi = 300)
     ggsave(file.path(output_dir, "multicohort_diagnosis.png"), gp_alluv, width = 8, height = 6, dpi = 300)
     ggsave(file.path(output_dir, "multicohort_amyloid.png"), p_amyloid, width = 8, height = 6, dpi = 300)
     ggsave(file.path(output_dir, "multicohort_ages.png"), p_amyloid, width = 9, height = 4, dpi = 500)
@@ -449,10 +461,16 @@ load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
 #unified_norm = TRUE
 #use_centiloid = FALSE
 
+twopac <- data.frame(
+  RID = multiLTC@RID,
+  Cluster = multiLTC@Cluster
+) %>%
+  mutate(Cluster = recode(Cluster, "C" = "A", "D" = "B"))
 
 multi_results <- run_multicohort_plots_and_tables(
-  multiLTC,
-  output_dir = "~/R/EDAP-data/plots/LTC_MC"
+  #multiLTC,
+  twopac,
+  output_dir = NULL #"~/R/EDAP-data/plots/LTC_MC/"
   )
 
 
@@ -493,10 +511,13 @@ library(purrr)
 clusterList <- list()
 for (cl in levels(multiLTC@Cluster)) { 
   row <- filter(desc, Cluster == cl)
+  if (nrow(row) == 0) {
+    next
+  }
   d <- filter(diag, Cluster == cl)
   
   metric_rows <- tibble(
-    Variable=c("N", "ADNI/OASIS", "Age", "Onset", "Educat.", "Num. MRI", "Female",
+    Variable=c("N", "ADNI/OASIS", "Age", "Onset", "t", "Educat.", "Num. MRI", "Female",
                "APOE e4 (0)", "APOE e4 (1)", "APOE e4 (2)", 
                "CN", "MCI", "AD", "CN - MCI/AD", "MCI - AD",
                "AB42/AB40 (MS)", "AB42/AB40 (IA)", "AB-PET (FBP)", "AB-PET (PiB)"),
@@ -505,6 +526,7 @@ for (cl in levels(multiLTC@Cluster)) {
       paste(percent_latex(row$adni_percent), percent_latex(row$oasis_percent), sep="/"),
       mean_sd_latex(row$age_mean, row$age_sd),
       mean_sd_latex(row$onset_mean, row$onset_sd),
+      mean_sd_latex(row$timeshift_mean, row$timeshift_sd),
       mean_sd_latex(row$education_mean, row$education_sd),
       mean_sd_latex(row$mri_mean, row$mri_sd),
       percent_latex(row$fem_percent),

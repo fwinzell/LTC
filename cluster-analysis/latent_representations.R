@@ -12,7 +12,8 @@ load(paste("~/R/EDAP-data/LTC_MC/new/", run, ".Rdata", sep = ""))
 Clusters <- data.frame(
   Cluster = multiLTC@Cluster,
   RID = multiLTC@RID
-)
+) %>%
+  mutate(Cluster = recode(Cluster, "C" = "A", "D" = "B"))
 
 
 visualize <- function(df, param_cols, group_col="Cluster") {
@@ -102,7 +103,7 @@ multi_cohort_df <- mutate(multi_cohort_df,
   mutate(Cohort = factor(ifelse(Cohort == "BF", "BF2", "ADNI/OASIS")))
 
 # Fit/load models
-if (TRUE) {
+if (FALSE) {
   results <- list()
   for (i in seq_along(mri.vars)) {
     varname = mri.vars[i]
@@ -113,7 +114,7 @@ if (TRUE) {
 
   save(results, file = "~/R/EDAP-data/LTC_MC/cluster_naive_models_2.Rdata") 
 } else {
-  load("~/R/EDAP-data/LTC_MC/cluster_naive_models.Rdata")  
+  load("~/R/EDAP-data/LTC_MC/cluster_naive_models_2.Rdata")  
 }
 
 
@@ -125,17 +126,17 @@ fixList <- lapply(results, `[[`, "fixed")
 rand_df <- purrr::reduce(randList, full_join, by = "RID")
 
 # Do not do this...
-func_slope <- data.frame(RID=rand_df$RID)
-for (i in seq_along(fixList)) {
-  fix <- fixList[[i]]
-  rnd <- randList[[i]]
-  slop <- data.frame(RID = rnd$RID,
-                     -exp(fix[grepl("l", names(fix))])*exp(exp(fix[grepl("g", names(fix))])*(1+rnd[grepl("gi", names(rnd))]))
-                     )
-  func_slope <- left_join(func_slope, slop, by="RID")
-}
+#func_slope <- data.frame(RID=rand_df$RID)
+#for (i in seq_along(fixList)) {
+#  fix <- fixList[[i]]
+#  rnd <- randList[[i]]
+#  slop <- data.frame(RID = rnd$RID,
+#                     -exp(fix[grepl("l", names(fix))])*exp(exp(fix[grepl("g", names(fix))])*(1+rnd[grepl("gi", names(rnd))]))
+#                     )
+#  func_slope <- left_join(func_slope, slop, by="RID")
+#}
 
-func_slope
+#func_slope
 
 # Run assingment test
 
@@ -433,6 +434,9 @@ run_centroid_cv <- function(df_complete, k_folds = 5) {
   return(results_df)
 }
 
+
+# Investigate if the cohort effect was removed
+# e.g. are these representations cohort invariant
 df_cohort <- df_complete %>% mutate(Cohort = factor(ifelse(Cohort == "BF", "BF2", "ADNI/OASIS")))
 
 bap <- run_cohort_test(df_cohort)
@@ -503,7 +507,6 @@ results_df %>%
     mean_recall.D = mean(recall.D)
   )
 
-visualize(params_df = select(df, -Cluster), Clusters = Clusters)
 
 
 # Try kNN classifier instead
@@ -519,7 +522,7 @@ results <- vector("list", n_reps)
 
 for (r in seq_len(n_reps)) {
   
- test_results <- run_assignment_test(df_complete, classifier = "knn", k=1)
+ test_results <- run_assignment_test(df_complete, classifier = "knn", k=5)
   
  results[[r]] <- data.frame(
    Rep = r,
@@ -612,6 +615,117 @@ ggplot(threshold_results,
     y = "Accuracy among assigned participants"
   )
 
+# Conclusions:
+# The latent representations and centroid classifier is not good enough to be 
+# used to evaluate BF2 cluster assignment, i.e. determine that a sample from BF2 
+# definitely belongs to cluster X given the centroid classifier result. However,
+# Since the representations is sort of invariant to cohort, they can be used 
+# to display similarlity between samples in BF2 and OASIS/ADNI
+
+df_scaled <- df_complete %>% mutate(across(all_of(param_cols),  ~ as.numeric(scale(.x))))
+bf_df <- df_scaled %>% filter(Cohort == "BF")
+
+centroids <- df_scaled %>% filter(Cohort != "BF") %>%
+  group_by(Cluster) %>%
+  summarise(
+    across(all_of(param_cols), mean),
+    .groups = "drop"
+  )
+
+bf_distances <- bf_df
+for (cl in centroids$Cluster) {
+  
+  # Get centroid for this cluster
+  centroid <- centroids %>%
+    filter(Cluster == cl) %>%
+    select(all_of(param_cols)) %>%
+    unlist()
+  
+  # Get BioFINDER parameter values
+  bf_params <- bf_df %>%
+    select(all_of(param_cols))
+  
+  # Difference between each subject and centroid
+  difference <- sweep(
+    bf_params,
+    MARGIN = 2,
+    STATS = centroid,
+    FUN = "-"
+  )
+  
+  # Euclidean distance
+  distance <- sqrt(
+    rowSums(difference^2)
+  )
+  
+  # Save it
+  bf_distances[[cl]] <- distance
+}
 
 
+
+# Quartenary plot 
+dist_cols <- paste0("", levels(df_scaled$Cluster))
+
+bf_distances$nearest_cluster <- apply(
+  bf_distances[, dist_cols],
+  1,
+  function(x) {
+    names(x)[which.min(x)]
+  }
+)
+table(bf_distances$nearest_cluster)
+
+bf_plot <- bf_distances
+
+# Convert distances to similarities
+bf_plot <- bf_plot %>%
+  rowwise() %>%
+  mutate(
+    total = sum(exp(-c_across(all_of(dist_cols)))),
+    A = exp(-dist_A) / total,
+    B = exp(-dist_B) / total,
+    C = exp(-dist_C) / total,
+    D = exp(-dist_D) / total
+  ) %>%
+  ungroup()
+
+bf_plot <- bf_plot %>%
+  mutate(
+    x = B - D,
+    y = A - C
+  )
+
+ggplot(bf_plot, aes(x, y)) +
+  geom_point(alpha = 0.5, size = 2) +
+  
+  annotate("text", x = 0,  y = 1.15, label = "Cluster A") +
+  annotate("text", x = 1.15, y = 0, label = "Cluster B") +
+  annotate("text", x = 0,  y = -1.15, label = "Cluster C") +
+  annotate("text", x = -1.15, y = 0, label = "Cluster D") +
+  
+  coord_equal() +
+  theme_classic() +
+  labs(
+    x = NULL,
+    y = NULL
+  )
+
+
+## Load biofinder clustering
+
+load("~/R/EDAP-data/LTC_MC/new/exp_km_ab_bf.Rdata")
+
+bfClusters <- data.frame(
+  RID = bFLTC@RID,
+  Cluster = bFLTC@Cluster
+)
+
+bf_clusters <- select(bf_distances, -Cluster) %>% left_join(bfClusters, by = "RID")
+
+table(bf_clusters[c("Cluster", "nearest_cluster")])
+
+# Conclusion: None of this works - either the representations are not good enough
+# or the clusters simply do not capture the same things across these cohorts. 
+# Since it is difficult to know which one it is, skip this analysis for the revision
 

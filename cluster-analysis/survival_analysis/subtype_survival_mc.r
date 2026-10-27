@@ -136,11 +136,11 @@ plot(insul_p$plot)
 plot <- ggarrange(
   hippo_plot$plot,
   ent_plot$plot,
-  accum_plot$plot,
+  #accum_plot$plot,
   lt_p$plot,
   par_p$plot,
   fusi_p$plot,
-  #insul_p$plot,
+  insul_p$plot,
   ncol = 3, nrow =2, common.legend = TRUE,
   legend = "bottom"
 )
